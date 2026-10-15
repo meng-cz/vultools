@@ -49,6 +49,11 @@ test('versions remain isolated and selected implementation is identified', () =>
 test('multiple tick blocks are legitimate', () => {
   assert.equal(valid('TICK_IMPL() {} TICK_IMPL() {}').components.length, 2);
 });
+test('optional tick names are display labels and do not collide with declarations', () => {
+  const r = valid('REGISTER(update,int); TICK_IMPL(update) {} TICK_IMPL(name=update) {} TICK_IMPL() {}');
+  assert.deepEqual(r.components.map(node => node.name), ['update', 'update', 'update', 'TICK_IMPL']);
+  assert.equal(new Set(r.components.map(node => node.id)).size, 4);
+});
 test('pipeline endpoints and their reset bodies remain nested', () => {
   const r = valid('PIPELINE(p, 3, IREG(input, Int<32>) { input=1; }, IVALID(iv), OREG(output, Int<32>), OVALID(ov)) { output = input; }');
   assert.equal(r.components[0].children.length, 4);

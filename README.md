@@ -10,7 +10,13 @@ VUL Tools 是面向 VUL 硬件开发与建模语言的 VS Code 扩展。
 
 打开 `.vul` 硬件模块，点击编辑器右上角的预览按钮，或执行 **VUL Tools: Open Visual View**。可视化视图按类别展示组件，点选后查看 API 参数、默认值、业务参数和原始 C++ 代码块。接口和实现版本保留各自层级；接口声明可以查看关联的实现代码。
 
-点击 **Source View** 返回源码编辑器。可视化为只读，不修改、保存或格式化源码。进入可视化、保存文件或执行 **VUL Tools: Refresh Declarations** 时，使用当前文档内容重新解析，包括未保存内容。其他编辑会将现有展示标为过期。
+点击 **Source View** 返回源码编辑器。结构和属性只读；实现代码使用可临时编辑的代码框，去掉外层花括号和公共缩进，并采用 VS Code 的编辑器字体、字号、字重、行高与 Tab 宽度。代码框中的修改只保留在当前视图，切换组件后仍保留，刷新后恢复源码内容，不写回文件。进入可视化、保存文件或执行 **VUL Tools: Refresh Declarations** 时，使用当前文档内容重新解析，包括未保存内容。其他源码编辑会将现有展示标为过期。
+
+列表中的 ALIAS 直接显示目标类型，例如 `Word → uint32_t`、`Lane → uint32_t[8][WIDTH]`；REGISTER、QUEUE、BRAM、WIRE 和流水线数据端点显示为 `name<type>`，如 `bank<uint32_t[4]>`；QUERY 显示为 `name → type`。名称与类型整体加粗，右侧 API 参数表保留原始 type、dims 属性。
+
+PARAMETER 在列表中显示为 `NAME = 默认值表达式`。REQUEST / SERVICE 使用加粗函数签名，例如 `fetch(uint32_t data, uint64_t & resp) -> bool`，握手开启时才显示 bool 返回值（包括 SERVICE 的 ready 隐含握手）。列表摘要只展示剩余的显式参数，例如 ready、dims、priority，不重复展示业务参数和 handshake。所有列表项均隐藏自动填充的默认参数；右侧详情保留默认值。宏名和名称加粗，其余参数保持相同字号、颜色及普通字重。
+
+临时代码框支持 C++ TextMate 语法高亮，优先采用已安装 C++ 提供者的语法定义，默认使用 VS Code 内置 C++ 语法；配色来自当前可访问的主题及 `editor.tokenColorCustomizations`（包含主题专用配置）。主题或配色变化后会重新着色，临时修改保留。Remote - SSH 下若远端无法读取仅安装在本地的主题，则采用对应明暗类型的默认主题。此处提供词法高亮，不调用 C++ IntelliSense 或进行语义检查。
 
 `.utb` 是测试 Main 文件，支持源码高亮和声明诊断。项目全局 Header 保持 `header.h` / `header.hpp` 或 `header/` 目录，不改变 C/C++ 编辑器关联。
 
@@ -29,7 +35,7 @@ npm test
 npm run package
 ```
 
-打包生成 `vul-tools-0.1.0.vsix`，在 VS Code 中通过 **Extensions: Install from VSIX...** 安装。按 F5 启动 Extension Development Host，默认打开 `examples/querydemo`。当前项目通过 TypeScript 编译为 CommonJS，Webview 使用原生 HTML/CSS/JavaScript。
+打包生成 `vul-tools-0.1.0.vsix`，在 VS Code 中通过 **Extensions: Install from VSIX...** 安装。按 F5 启动 Extension Development Host，默认打开 `examples/querydemo`。构建先进行 TypeScript 编译，再用 esbuild 将宿主代码及运行时依赖打包为 CommonJS，同时生成 Oniguruma WASM 和第三方许可证。Webview 使用原生 HTML/CSS/JavaScript。
 
 ## 运行真实示例
 
@@ -56,6 +62,6 @@ npm run test:examples    # 三个真实案例，生成/编译/运行断言
 npm run test:host        # VS Code 1.95.3 扩展宿主测试，首次下载测试宿主
 ```
 
-Linux 无桌面环境时使用 `xvfb-run -a npm run test:host`。可设置 `VSCODE_TEST_VERSION` 或 `VSCODE_TEST_EXECUTABLE` 指定测试宿主。宿主测试覆盖文件关联、视图切换、未保存刷新、诊断和保存行为；DOM 测试覆盖组件点选、只读属性与代码展示、版本关联、过期结果及安全文本渲染。
+Linux 无桌面环境时使用 `xvfb-run -a npm run test:host`。可设置 `VSCODE_TEST_VERSION` 或 `VSCODE_TEST_EXECUTABLE` 指定测试宿主。宿主测试覆盖文件关联、视图切换、未保存刷新、诊断和保存行为；DOM 测试覆盖组件点选、只读属性、临时代码编辑、版本关联、过期结果及安全文本渲染。
 
 声明检查基于 SDK 随附的声明 API 手册，支持表和边界见 [声明解析说明](docs/declarations.md)。发布验收见 [验收记录](docs/acceptance.md)。

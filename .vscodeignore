@@ -13,7 +13,11 @@ build/**
 examples/**/build/**
 *.vsix
 out/**/*.map
+out/**
+!out/extension.js
+!out/THIRD_PARTY_LICENSES.txt
 .agents/**
 .aws/**
 .codex/**
 .gitignore
+scripts/build.cjs

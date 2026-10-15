@@ -19,8 +19,8 @@ export const rules: Record<string, Rule> = {
   SERVICE: { fields: ['name', 'handshake', 'dims', 'priority', 'ready'], defaults: { handshake: 'false', dims: '[]', priority: '0' }, optional: ['ready'], tail: 'business', body: 'optional', category: interfaces },
   QUERY: { fields: ['name', 'type'], body: 'optional', category: interfaces },
   CHILD_INSTANCE: { fields: ['module', 'name', 'dims'], defaults: { dims: '[]' }, tail: 'overrides', category: 'Submodules and Connections' },
-  USE_CHILD_SERVICE: { fields: ['instance', 'service', 'alias', 'dims'], defaults: { dims: '(inferred)' }, tail: 'business', category: interfaces },
-  USE_CHILD_QUERY: { fields: ['instance', 'query', 'alias', 'type', 'dims'], defaults: { dims: '(inferred)' }, category: interfaces },
+  USE_CHILD_SERVICE: { fields: ['instance', 'service', 'alias', 'dims'], defaults: { dims: '(inferred)' }, tail: 'business', category: 'Submodules and Connections' },
+  USE_CHILD_QUERY: { fields: ['instance', 'query', 'alias', 'type', 'dims'], defaults: { dims: '(inferred)' }, category: 'Submodules and Connections' },
   BRAM: { fields: ['name', 'type', 'size', 'read_ports', 'write_ports', 'mode'], defaults: { read_ports: '1', write_ports: '1', mode: 'generic' }, category: resources },
   ROM: { fields: ['name', 'data_width', 'size', 'read_ports', 'init'], defaults: { read_ports: '1' }, category: resources },
   QUEUE: { fields: ['name', 'type', 'depth', 'enq_width', 'deq_width'], defaults: { enq_width: '1', deq_width: '1' }, category: resources },
@@ -39,7 +39,7 @@ export const rules: Record<string, Rule> = {
   TOP: { fields: ['path'], category: 'Project Binding' },
   PROJECT: { fields: ['path'], category: 'Project Binding' },
   HELPER: { fields: [], body: 'required', category: 'Behavior and Helpers' },
-  TICK_IMPL: { fields: [], body: 'required', category: 'Behavior and Helpers' },
+  TICK_IMPL: { fields: ['name'], optional: ['name'], body: 'required', category: 'Behavior and Helpers' },
   GLOBAL: { fields: [], body: 'required', category: 'Simulation' },
   SIMULATION: { fields: [], body: 'required', category: 'Simulation' }
 };

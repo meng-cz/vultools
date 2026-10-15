@@ -2,11 +2,13 @@ import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import { DocumentSession } from './session';
 import { FileKind } from './parser';
+import { SyntaxService } from './syntax';
 
 export const viewType = 'vul-tools.visualizer';
 export function activate(context: vscode.ExtensionContext) {
   const diagnostics = vscode.languages.createDiagnosticCollection('VUL Tools');
   const output = vscode.window.createOutputChannel('VUL Tools');
+  const syntax = new SyntaxService(context.extensionUri, output);
   const sessions = new Map<string, DocumentSession>();
   const panels = new Map<vscode.WebviewPanel, vscode.TextDocument>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -32,8 +34,17 @@ export function activate(context: vscode.ExtensionContext) {
     const state = session(doc);
     for (const [panel, document] of panels) if (document === doc) {
       void panel.webview.postMessage({ type: 'snapshot', uri: doc.uri.toString(), version: state.version, currentVersion: doc.version,
-        stale: state.stale, dirty: doc.isDirty, filename: vscode.workspace.asRelativePath(doc.uri), result: state.result });
+        stale: state.stale, dirty: doc.isDirty, filename: vscode.workspace.asRelativePath(doc.uri), result: state.result, editorOptions: editorOptions(doc) });
     }
+  }
+  function editorOptions(doc: vscode.TextDocument) {
+    const config = vscode.workspace.getConfiguration('editor', doc);
+    const textEditor = vscode.window.visibleTextEditors.find(editor => editor.document === doc);
+    return {
+      fontFamily: config.get<string>('fontFamily'), fontSize: config.get<number>('fontSize'),
+      fontWeight: config.get<string>('fontWeight'), lineHeight: config.get<number>('lineHeight'),
+      tabSize: typeof textEditor?.options.tabSize === 'number' ? textEditor.options.tabSize : config.get<number>('tabSize', 4)
+    };
   }
   function refresh(doc: vscode.TextDocument) {
     if (!supported(doc)) return;
@@ -48,7 +59,15 @@ export function activate(context: vscode.ExtensionContext) {
     if (activePanel?.active) return panels.get(activePanel);
     return vscode.window.activeTextEditor?.document;
   }
-  context.subscriptions.push(diagnostics, output,
+  context.subscriptions.push(diagnostics, output, syntax,
+    vscode.window.onDidChangeActiveColorTheme(() => {
+      syntax.invalidate();
+      for (const panel of panels.keys()) void panel.webview.postMessage({ type: 'highlightThemeChanged' });
+    }),
+    vscode.extensions.onDidChange(() => {
+      syntax.invalidate();
+      for (const panel of panels.keys()) void panel.webview.postMessage({ type: 'highlightThemeChanged' });
+    }),
     vscode.window.registerCustomEditorProvider(viewType, {
       async resolveCustomTextEditor(doc, panel) {
         panels.set(panel, doc); activePanel = panel;
@@ -59,10 +78,14 @@ export function activate(context: vscode.ExtensionContext) {
         panel.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';"><link href="${css}" rel="stylesheet"><title>VUL Tools</title></head><body><header><strong>VUL Tools</strong><span id="filename"></span><button id="source" type="button">Source View</button><button id="refresh" type="button">Refresh</button></header><p id="status" role="status">Loading declarations…</p><main><nav id="components" aria-label="VUL components"></nav><article id="details" aria-label="Component details"><p>Select a component to inspect its API parameters and C++ code.</p></article></main><section id="issues" aria-label="Declaration diagnostics"></section><script nonce="${nonce}" src="${js}"></script></body></html>`;
         panel.onDidChangeViewState(() => { if (panel.active) { activePanel = panel; if (session(doc).stale) refresh(doc); } }, undefined, context.subscriptions);
         panel.onDidDispose(() => { panels.delete(panel); if (activePanel === panel) activePanel = undefined; }, undefined, context.subscriptions);
-        panel.webview.onDidReceiveMessage(message => {
+        panel.webview.onDidReceiveMessage(async message => {
           if (!message || typeof message !== 'object') return;
           if (message.type === 'ready' || message.type === 'refresh') refresh(doc);
           if (message.type === 'source') void vscode.commands.executeCommand('vscode.openWith', doc.uri, 'default');
+          if (message.type === 'highlight' && Number.isSafeInteger(message.requestId) && typeof message.code === 'string' && message.code.length <= 200_000 && message.code.split('\n').length <= 3000) {
+            const result = await syntax.highlight(message.code, doc);
+            if (panels.has(panel)) void panel.webview.postMessage({ type: 'highlightResult', requestId: message.requestId, result });
+          }
         }, undefined, context.subscriptions);
         refresh(doc);
       }
@@ -103,10 +126,17 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('vulTools')) for (const doc of vscode.workspace.textDocuments) refresh(doc);
+      for (const [panel, doc] of panels) {
+        if (event.affectsConfiguration('editor', doc)) void panel.webview.postMessage({ type: 'editorSettings', editorOptions: editorOptions(doc) });
+      }
+      if (event.affectsConfiguration('editor.tokenColorCustomizations') || event.affectsConfiguration('workbench.colorTheme') || event.affectsConfiguration('[cpp]')) {
+        syntax.invalidate();
+        for (const panel of panels.keys()) void panel.webview.postMessage({ type: 'highlightThemeChanged' });
+      }
     }),
     { dispose() { for (const timer of timers.values()) clearTimeout(timer); timers.clear(); sessions.clear(); panels.clear(); } }
   );
   for (const doc of vscode.workspace.textDocuments) refresh(doc);
   // Read-only inspection hook used by the extension-host regression suite.
-  return { getSnapshot: (uri: vscode.Uri) => sessions.get(uri.toString()), viewType };
+  return { getSnapshot: (uri: vscode.Uri) => sessions.get(uri.toString()), highlightCode: (code: string, doc: vscode.TextDocument) => syntax.highlight(code, doc), viewType };
 }

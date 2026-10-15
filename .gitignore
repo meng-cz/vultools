@@ -49,3 +49,6 @@ desktop.ini
 
 install/
 examples/
+
+# Generated syntax-highlighting runtime
+media/onig.wasm

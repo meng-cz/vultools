@@ -22,6 +22,19 @@ exports.run = async function () {
     await vscode.window.showTextDocument(document);
     await vscode.commands.executeCommand('vul-tools.refresh');
     assert.equal(vscode.languages.getDiagnostics(file).length, 0);
+    const colored = await api.highlightCode('const int answer = 42; // comment', document);
+    assert.ok(colored?.lines[0].length > 1, 'real installed C++ grammar must tokenize the code');
+    assert.ok(new Set(colored.lines[0].map(token => token.color)).size > 1, 'active theme must provide token colors');
+    const config = vscode.workspace.getConfiguration('editor');
+    const originalColors = config.inspect('tokenColorCustomizations')?.globalValue;
+    try {
+      await config.update('tokenColorCustomizations', { comments: '#12AB34' }, vscode.ConfigurationTarget.Global);
+      await until(async () => {
+        const result = await api.highlightCode('// customized comment', document);
+        return result?.lines[0].some(token => token.color?.toUpperCase() === '#12AB34');
+      });
+    } finally { await config.update('tokenColorCustomizations', originalColors, vscode.ConfigurationTarget.Global); }
+
     await vscode.commands.executeCommand('vul-tools.openVisual');
     await until(() => api.getSnapshot(file)?.result);
     const edit = new vscode.WorkspaceEdit();

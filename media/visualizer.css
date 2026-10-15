@@ -9,9 +9,23 @@ main { display: grid; grid-template-columns: minmax(230px, 30%) minmax(0, 1fr); 
 nav { border-right: 1px solid var(--vscode-panel-border); padding-right: 12px; }
 h3 { font-size: 1em; margin-top: 20px; }
 .component { display: block; text-align: left; width: 100%; margin: 4px 0; color: var(--vscode-editor-foreground); background: transparent; overflow-wrap: anywhere; }
+.component-kind { font-weight: 700; }
+.component-name { font-weight: 700; }
+.component-summary { font-size: inherit; color: inherit; font-weight: normal; }
+.submodule > h4 { font-size: 1em; font-weight: normal; margin: 12px 0 4px; }
 .component:hover, .component[aria-pressed=true] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
+.component:hover .component-summary, .component[aria-pressed=true] .component-summary { color: inherit; }
 .children { margin-left: 12px; border-left: 1px solid var(--vscode-panel-border); padding-left: 8px; }
-pre { padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family), monospace; background: var(--vscode-textCodeBlock-background); tab-size: 4; }
+pre { padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family), monospace; background: transparent; tab-size: 4; }
+.code-surface { position: relative; }
+.code-editor, .code-highlight { box-sizing: border-box; width: 100%; padding: 10px; color: var(--vscode-editor-foreground); background: transparent; font-family: var(--vul-code-font-family, var(--vscode-editor-font-family, monospace)); font-size: var(--vul-code-font-size, var(--vscode-editor-font-size, 14px)); font-weight: var(--vul-code-font-weight, var(--vscode-editor-font-weight, normal)); line-height: var(--vul-code-line-height, 1.5); tab-size: var(--vul-code-tab-size, 4); letter-spacing: normal; white-space: pre; }
+.code-editor { position: relative; display: block; min-height: 8em; resize: vertical; border: 1px solid var(--vscode-panel-border); caret-color: var(--vscode-editorCursor-foreground, var(--vscode-editor-foreground)); }
+.code-highlight { position: absolute; inset: 0; margin: 0; border: 1px solid transparent; overflow: hidden; pointer-events: none; visibility: hidden; }
+.is-highlighted .code-highlight { visibility: visible; }
+.is-highlighted .code-editor { color: transparent; }
+.code-editor::selection { color: var(--vscode-editor-selectionForeground, var(--vscode-editor-foreground)); background: var(--vscode-editor-selectionBackground); }
+.code-editor:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.code-note { font-size: 0.9em; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 7px; vertical-align: top; border-bottom: 1px solid var(--vscode-panel-border); overflow-wrap: anywhere; }
 .muted { color: var(--vscode-descriptionForeground); }
