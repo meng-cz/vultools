@@ -1,0 +1,72 @@
+{
+  "name": "VUL",
+  "scopeName": "source.vul",
+  "patterns": [
+    {
+      "include": "#raw"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "name": "keyword.control.declaration.vul",
+      "match": "\\b(?:CONFIG|PARAMETER|STRUCT|ENUM|ALIAS|REGISTER|WIRE|REQUEST|SERVICE|QUERY|CHILD_INSTANCE|USE_CHILD_SERVICE|USE_CHILD_QUERY|BRAM|ROM|QUEUE|CONNECT_CR_CS|CONNECT_CR_S|CONNECT_CR_R|CONNECT_S_CS|PIPELINE|IREG|OREG|IVALID|OVALID|INTERFACE|VERSION|USE_VERSION|TOP|PROJECT|HELPER|TICK_IMPL|GLOBAL|SIMULATION|ARG|RESP|PARAM|COORD)\\b"
+    },
+    {
+      "name": "variable.parameter.vul",
+      "match": "\\b(?:name|type|value|dims|ports|handshake|priority|ready|module|instance|service|query|alias|depth|size|mode|read_ports|write_ports|enq_width|deq_width|latency|init|path|data_width)\\b(?=\\s*=)"
+    },
+    {
+      "include": "source.cpp"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.vul",
+          "begin": "//",
+          "end": "$"
+        },
+        {
+          "name": "comment.block.vul",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.vul",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.vul",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.vul",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "raw": {
+      "name": "string.quoted.raw.vul",
+      "begin": "(?:u8|u|U|L)?R\"([^\\s()\\\\]{0,16})\\(",
+      "end": "\\)\\1\""
+    }
+  }
+}

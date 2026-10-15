@@ -1,0 +1,9 @@
+{
+  "name": "VUL Testbench",
+  "scopeName": "source.vul.testbench",
+  "patterns": [
+    {
+      "include": "source.vul"
+    }
+  ]
+}
