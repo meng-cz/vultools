@@ -121,6 +121,12 @@
           "type": "boolean",
           "default": true,
           "description": "Check VUL declaration syntax. C++ bodies are not checked."
+        },
+        "vulTools.projectRoot": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Project directory override. Relative paths use the workspace folder. If empty, use the module PROJECT declaration, then search ancestor directories for a project Header."
         }
       }
     }

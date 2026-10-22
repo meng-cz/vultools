@@ -33,3 +33,9 @@ th, td { text-align: left; padding: 7px; vertical-align: top; border-bottom: 1px
 .error { color: var(--vscode-editorError-foreground); }
 #issues { border-top: 1px solid var(--vscode-panel-border); margin-top: 24px; }
 @media (max-width: 650px) { main { grid-template-columns: 1fr; } nav { border-right: 0; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 12px; } }
+
+nav details { margin: 12px 0; }
+nav summary { cursor: pointer; font-weight: 700; padding: 8px 0; overflow-wrap: anywhere; }
+nav summary:focus-visible { outline: 2px solid var(--vscode-focusBorder); }
+.header-section { margin-left: 10px; }
+.project-root { font-size: .85em; overflow-wrap: anywhere; }

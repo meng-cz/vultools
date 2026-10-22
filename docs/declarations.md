@@ -22,7 +22,7 @@
 
 代码块仅扫描词法边界与花括号平衡。函数调用、C++ 表达式或类型是否合法不在检查范围。预处理器不运行，条件编译内容保留条件标签，自定义宏输出不展开。因此声明检查不能替代 VUL 生成器验证。
 
-解析入口接受 `module`、`testbench`、`header` 三种文件范围；扩展仅对 `.vul`、`.utb` 文档自动执行。Header 解析能力用于规则测试，不接管 `.h/.hpp` 或发布其诊断。
+解析入口接受 `module`、`testbench`、`header` 三种文件范围；扩展对 `.vul`、`.utb` 文档执行声明检查；项目级可视化另外收集 Header 并以 `header` 模式解析，在对应 Header 发布声明诊断，但保持其 C++ 文件关联。
 
 组件属性保留显式值和默认值；解析模型中的代码块保持原始字符和换行。范围使用 JavaScript / VS Code UTF-16 偏移。可视化列表合成目标类型字符串，不进行类型解析或维度求值：ALIAS / QUERY 使用 name → type，REGISTER、QUEUE、BRAM、WIRE、IREG、OREG 使用 name<type>，维度融合进类型。整个名称与类型加粗，API 表仍显示原始属性。
 
@@ -31,3 +31,13 @@ REQUEST / SERVICE 按原有业务参数顺序显示 name(T arg, U & resp)，其�
 实现代码在可编辑 textarea 组件中展示，完整代码块去掉外层花括号、边界空行和公共缩进；Tab 根据编辑器宽度换算，内部相对缩进保留。代码框使用 VS Code 编辑器字体设置，背景与编辑器一致。修改只缓存于当前 Webview，不改变解析模型或文件，刷新时丢弃。源文本通过文本节点或 textarea.value 渲染，不作为 HTML 执行。
 
 高亮使用宿主侧 TextMate / Oniguruma，复用可用 C++ 语法定义、主题 tokenColors 和 editor.tokenColorCustomizations，支持 JSONC 主题及 include。浏览器的 textarea 与安全文本高亮层叠加，共用字体、行高和滚动位置。临时代码通过 highlight 消息请求着色，highlightResult 返回 UTF-16 token 范围和颜色，不修改文档；按请求 ID 丢弃过期结果。ready、refresh、source 保持原有功能，editorSettings 更新字体，highlightThemeChanged 请求重新着色。词法高亮独立于声明检查，也不提供 C++ 语义诊断。
+
+## 项目级解析
+
+`src/project.ts` 提供不依赖 VS Code 的项目定位和 Header 收集；`src/projects.ts` 负责 URI 文件访问、共享缓存、文件监听、文档版本保护和 Header 诊断。项目设置覆盖优先于模块 PROJECT，再向上查找；无效显式绑定不回退。PROJECT 只允许在模块顶层出现一次，路径为普通双引号字符串字面量（支持 JSON 形式转义），相对模块目录解析。PROJECT 元数据不影响 INTERFACE 与 USE_VERSION 的位置约束。
+
+每个 Header 单独调用解析器，保留来源 URI、文档版本、未保存标记、UTF-16 行起始位置、解析结果或读取错误。Header 目录递归收集 `.h/.hpp` 并按相对路径排序，递归不跟随符号链接；单文件与目录布局互斥。不同文件的 CONFIG / ALIAS 等不会被合并；不检查跨文件重名、不计算 include 依赖或常量表达式。某个文件失败不影响其他文件和模块结果。
+
+Webview 的 snapshot 增加 project（根目录、布局、各文件结果、revision、stale 和消息）；模块 refreshId 独立标识显式刷新。组件与关联 ID 在浏览器中用 JSON 编码的 `[文件 URI, 文件内 ID]` 隔离，临时代码草稿使用同一文件上下文。来源、属性、诊断、代码与高亮上下文均绑定到选中文件；Header 字体读取对应资源的 C++ 编辑器设置。
+
+两个一级栏和 Header 文件栏采用原生 details/summary，可键盘操作，展开状态保存在 Webview state。全局更新不清除模块草稿；过期结果保留展示并提示刷新，重新解析该部分后恢复其源码代码。Header 编辑立即使项目结果过期并清理旧诊断；保存或文件变更时合并刷新。异步根目录识别与 Header 读取使用绑定身份、缓存代次和文档版本校验，旧任务不得提交到新的绑定。

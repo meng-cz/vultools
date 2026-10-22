@@ -45,7 +45,7 @@ test('INTERFACE declarations appear directly under a single top Interfaces headi
     // Presentation order must not depend on the position of the container.
     result.components.reverse();
     ui.send(result);
-    const sections = ui.document.querySelector('#components').children;
+    const sections = ui.document.querySelector('.module-section > .declarations').children;
     assert.equal(sections[0].querySelector('h3').textContent, 'Interfaces');
     assert.deepEqual([...sections[0].querySelectorAll('.component')].map(button => `${button.querySelector('.component-kind').textContent} · ${button.querySelector('.component-name').textContent}`), [
       'PARAMETER · WIDTH', 'REQUEST · out()', 'SERVICE · push()', 'QUERY · value → uint32_t'
@@ -61,7 +61,7 @@ test('empty INTERFACE has one heading and no selectable block', () => {
   const ui = setup();
   try {
     ui.send(parse('INTERFACE() {} REGISTER(count,uint32_t);'));
-    const section = ui.document.querySelector('#components').firstElementChild;
+    const section = ui.document.querySelector('.module-section > .declarations').firstElementChild;
     assert.equal(section.querySelector('h3').textContent, 'Interfaces');
     assert.equal(section.querySelectorAll('.component').length, 0);
   } finally { ui.dom.window.close(); }
@@ -160,7 +160,7 @@ test('submodule groups include child imports and both ends of child-to-child con
     assert.deepEqual(kinds(groups[0]), ['CHILD_INSTANCE', 'USE_CHILD_SERVICE', 'CONNECT_CR_CS', 'CONNECT_CR_R', 'CONNECT_CR_S']);
     assert.deepEqual(kinds(groups[1]), ['CHILD_INSTANCE', 'USE_CHILD_QUERY', 'CONNECT_CR_CS', 'CONNECT_S_CS']);
     const id = result.components.find(node => node.kind === 'CONNECT_CR_CS').id;
-    const copies = [...ui.document.querySelectorAll('.component')].filter(button => button.dataset.id === id);
+    const copies = [...ui.document.querySelectorAll('.component')].filter(button => button.dataset.id === JSON.stringify(['file:///Top.vul', id]));
     assert.equal(copies.length, 2);
     copies[1].click();
     assert.ok(copies.every(button => button.getAttribute('aria-pressed') === 'true'));
@@ -332,5 +332,58 @@ test('element types, query results and alias targets are part of the bold label'
     assert.ok(names.every(node => node.tagName === 'STRONG'));
     assert.ok([...ui.document.querySelectorAll('.component-type')].every(node => node.closest('strong.component-name')));
     assert.doesNotMatch(ui.document.querySelector('#components').textContent, /type=|dims=\[4\]/);
+  } finally { ui.dom.window.close(); }
+});
+test('global and module sections expand independently and Header identity scopes details and drafts', async () => {
+  const ui = setup();
+  try {
+    const module = parse('STRUCT(Same) { int module; };');
+    const project = { root:'file:///p', mode:'directory', stale:false, revision:1, messages:[], files:[
+      { uri:'file:///p/header/a/types.hpp', filename:'a/types.hpp', result:parse('STRUCT(Same) { int first; };', 'header') },
+      { uri:'file:///p/header/b/types.hpp', filename:'b/types.hpp', result:parse('STRUCT(Same) { int second; };', 'header') }
+    ] };
+    ui.send(module, { project, refreshId: 1 });
+    const sections = ui.document.querySelectorAll('#components > details');
+    assert.deepEqual([...sections].map(s => s.firstElementChild.textContent), ['Global Declarations','Module Contents']);
+    assert.ok([...sections].every(s => s.open));
+    sections[0].open = false;
+    sections[0].dispatchEvent(new ui.dom.window.Event('toggle'));
+    assert.equal(sections[1].open,true);
+    const buttons = [...ui.document.querySelectorAll('.component')];
+    assert.equal(new Set(buttons.map(b => b.dataset.id)).size,3);
+    buttons[0].click();
+    assert.match(ui.document.querySelector('#details').textContent, /Source: a\/types.hpp/);
+    let editor = ui.document.querySelector('.code-editor');
+    editor.value='temporary first'; editor.dispatchEvent(new ui.dom.window.Event('input'));
+    buttons[1].click(); assert.equal(ui.document.querySelector('.code-editor').value,'int second;');
+    buttons[0].click(); assert.equal(ui.document.querySelector('.code-editor').value,'temporary first');
+    ui.send(module, { project:{...project, stale:true, revision:2}, refreshId:1 });
+    assert.equal(ui.document.querySelector('.global-section').open,false);
+    assert.equal(ui.document.querySelector('.code-editor').value,'temporary first');
+    assert.match(ui.document.querySelector('.global-section').textContent,/out of date/);
+    ui.send(module, { project:{...project, revision:3, files:project.files.slice(1)}, refreshId:1 });
+    assert.match(ui.document.querySelector('#details').textContent,/Select a component/);
+    assert.ok(ui.messages.some(m => m.type === 'highlight' && m.uri === project.files[0].uri));
+  } finally { ui.dom.window.close(); }
+});
+test('single Header has no filename group and refreshing globals preserves module drafts', () => {
+  const ui = setup();
+  try {
+    const module = parse('TICK_IMPL() { work(); }');
+    const project = { root:'file:///p', mode:'file', stale:false, revision:1, messages:[], files:[
+      { uri:'file:///p/header.h', filename:'header.h', dirty:true, result:parse('CONFIG(WIDTH,32);', 'header') }
+    ] };
+    ui.send(module,{project,refreshId:1});
+    assert.equal(ui.document.querySelectorAll('.header-section').length,0);
+    assert.match(ui.document.querySelector('.global-section').textContent,/WIDTH = 32/);
+    assert.match(ui.document.querySelector('.global-section').textContent,/Unsaved Header/);
+    ui.document.querySelector('.module-section .component').click();
+    const editor = ui.document.querySelector('.code-editor');
+    editor.value = 'local();'; editor.dispatchEvent(new ui.dom.window.Event('input'));
+    ui.send(module,{project:{...project,revision:2},refreshId:1});
+    assert.equal(ui.document.querySelector('.code-editor').value,'local();');
+    ui.send(module,{project:{...project,revision:3,messages:['Cannot read header.h'],files:[]},refreshId:1});
+    assert.match(ui.document.querySelector('.global-section').textContent,/Cannot read/);
+    assert.equal(ui.document.querySelector('.code-editor').value,'local();');
   } finally { ui.dom.window.close(); }
 });

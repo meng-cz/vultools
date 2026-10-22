@@ -96,7 +96,7 @@ class Parser {
     if (scope === 'VERSION') return !['PARAMETER', 'REQUEST', 'INTERFACE', 'VERSION', 'USE_VERSION', 'TOP', 'PROJECT', 'GLOBAL', 'SIMULATION'].includes(kind);
     if (this.fileKind === 'header') return headerKinds.has(kind);
     if (this.fileKind === 'testbench') return testbenchKinds.has(kind);
-    return !['TOP', 'PROJECT', 'GLOBAL', 'SIMULATION'].includes(kind);
+    return !['TOP', 'GLOBAL', 'SIMULATION'].includes(kind);
   }
   private arguments(node: Component, tokens: Token[], rule: Rule): void {
     let position = 0, named = false, tail = false;
@@ -169,6 +169,13 @@ class Parser {
       : canonical(attr('name')?.value || attr('alias')?.value || '') || node.kind;
     for (const field of ['name', 'alias', 'module', 'service', 'query']) {
       if (attr(field) && !/^[A-Za-z_]\w*$/.test(canonical(attr(field)!.value))) this.error(node, `${node.kind}: '${field}' must be an identifier.`);
+    }
+    if (node.kind === 'PROJECT' && this.fileKind === 'module' && attr('path')) {
+      try {
+        const tokens = tokenize(attr('path')!.value).tokens;
+        const path = tokens.length === 1 && tokens[0].kind === 'literal' ? JSON.parse(tokens[0].text) : undefined;
+        if (typeof path !== 'string' || !path || path.includes('\0')) throw new Error();
+      } catch { this.error(node, 'PROJECT path must be a nonempty string literal without NUL.'); }
     }
     if (attr('handshake') && !['true', 'false', '1', '0'].includes(canonical(attr('handshake')!.value))) this.error(node, 'handshake must be true, false, 1 or 0.');
     if (attr('dims')?.explicit) {
@@ -280,16 +287,17 @@ class Parser {
     return result;
   }
   private relationships(components: Component[]): void {
+    const layout = components.filter(c => c.kind !== 'PROJECT');
     const all = flatten(components), interfaces = components.filter(c => c.kind === 'INTERFACE' && !c.condition);
     const versions = components.filter(c => c.kind === 'VERSION' && !c.condition);
     const selection = components.filter(c => c.kind === 'USE_VERSION' && !c.condition);
     const conditionalStructure = components.some(c => c.condition && ['INTERFACE', 'VERSION', 'USE_VERSION'].includes(c.kind));
     if (!conditionalStructure) {
       if (interfaces.length > 1) this.error(interfaces[1], 'Only one INTERFACE is allowed.');
-      if (interfaces.length && components[0] !== interfaces[0]) this.error(interfaces[0], 'INTERFACE must be the first declaration.');
+      if (interfaces.length && layout[0] !== interfaces[0]) this.error(interfaces[0], 'INTERFACE must be the first declaration.');
       if (selection.length > 1) this.error(selection[1], 'Only one USE_VERSION is allowed.');
       if (selection.length) {
-        if (!interfaces.length || components[1] !== selection[0]) this.error(selection[0], 'USE_VERSION must immediately follow INTERFACE.');
+        if (!interfaces.length || layout[1] !== selection[0]) this.error(selection[0], 'USE_VERSION must immediately follow INTERFACE.');
         if (!versions.some(v => v.name === selection[0].name)) this.error(selection[0], `Selected version '${selection[0].name}' does not exist.`);
       } else if (versions.length) this.error(versions[0], 'VERSION requires USE_VERSION.');
     }

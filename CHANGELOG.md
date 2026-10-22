@@ -2,6 +2,10 @@
 
 ## 0.1.0
 
+- Add project-wide Header declaration browsing with independent Global Declarations and Module Contents sections.
+- Discover projects from vulTools.projectRoot, module PROJECT metadata, or nearest ancestor Headers; support recursive per-file Header groups.
+- Share Header parsing across modules, read unsaved buffers, publish declaration diagnostics, and refresh on filesystem changes with stale-result protection.
+
 - Add VUL module (`.vul`) and testbench (`.utb`) language support.
 - Check declaration syntax without checking embedded C++ bodies.
 - Add read-only component visualization, API parameter inspection and original code blocks.

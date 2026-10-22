@@ -24,6 +24,22 @@ Problems 中的 **VUL Tools** 诊断检查 API 参数、声明边界与作用域
 
 自定义宏不展开；条件编译不执行，条件区域中的声明在视图中标记为未求值。不提供源码跳转、图形编辑、属性写回、专属补全或项目索引。
 
+## 项目级全局声明
+
+可视化左侧的 **Global Declarations** 和 **Module Contents** 可独立折叠，默认均展开；折叠状态和选中项随刷新保留。全局栏展示 CONFIG、ALIAS、STRUCT、ENUM 和 HELPER；CONFIG 同样显示为 `NAME = value`。详情注明来源文件，属性及代码展示复用模块组件的交互。
+
+项目目录按以下顺序识别：
+
+1. 设置 `vulTools.projectRoot`：绝对路径直接使用，相对路径以当前文件所属工作区目录为基准。可在多根工作区的各文件夹中分别配置。
+2. 当前模块顶层的 `PROJECT("../project");` 或 `PROJECT(path="../project");`：相对路径以模块所在目录为基准，至多一个，要求普通双引号字符串字面量。它是扩展的项目绑定信息，不修改 SDK 的处理规则，也不参与 INTERFACE / USE_VERSION 的排列检查。
+3. 从模块目录向上查找最近包含 `header/`、`header.h` 或 `header.hpp` 的目录，直到文件系统根目录。
+
+显式设置或 PROJECT 无效时显示错误，不回退到其他目录；未找到项目时仍可浏览模块。单文件 Header 直接分类展示；`header/` 递归收集 `.h/.hpp`，按相对路径排序并分文件展示，递归时不跟随符号链接。三种 Header 形式互斥，冲突时提示修正，不任意选择。
+
+Header 已打开时优先读取未保存内容。编辑 Header 后全局结果标为过期，保存、重新进入可视化或手动刷新后更新；外部变更和文件增删会合并刷新。同一项目的模块共享 Header 缓存，普通模块编辑不会使全局声明过期。Header 声明错误发布到对应文件的 Problems，受 `vulTools.diagnostics.enabled` 控制；Header 仍使用 C++ 文件关联。全局与模块代码框的临时编辑相互隔离，刷新全局不会清除模块代码草稿。
+
+本功能收集 VUL 声明，不计算参数或类型、不执行预处理，也不按 include 关系做依赖求值或跨文件语义检查。
+
 ## 开发与安装
 
 开发基线：Ubuntu x86_64、Node.js 24、npm、VS Code 1.95 或更新版本。Remote - SSH 下扩展运行于工作区宿主。查看和声明解析不需要安装 LLVM、Clang 或 VUL SDK。

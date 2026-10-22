@@ -2,6 +2,8 @@
 
 本索引供 AI 开发时快速定位职责、调用关系与修改入口，以当前实现为准。项目是 VS Code 扩展，名称为 **VUL Tools**，扩展标识为 `mengcz-sdu.vul-tools`。硬件模块绑定 `.vul`，测试入口绑定 `.utb`；Header 保持 `.h/.hpp` 的现有语言关联。
 
+项目级数据流：`src/extension.ts` → `src/projects.ts`（VS Code 生命周期、监听、共享缓存）→ `src/project.ts`（定位与收集）→ Header 模式解析；项目结果与模块结果分别发布，组件身份以 URI 隔离。
+
 主要数据流：`src/extension.ts` → `src/session.ts` → `src/parser/index.ts` → `lexer.ts` / `rules.ts` → `ParseResult` → Problems 与 Webview。Webview 通过 `ready`、`refresh`、`source` 消息请求宿主动作，宿主通过 `snapshot` 消息发布文档状态和解析结果。
 
 语法高亮另走 `highlight` → `src/syntax.ts` → `src/highlight.ts` → `highlightResult`，只返回 token 范围和配色，不修改源码；字体和主题更新也不清除临时代码。
@@ -18,11 +20,24 @@
 - **编辑器设置**：`editorOptions()` 按文档和语言获取字体、字号、字重、行高及 Tab 宽度，随 snapshot 发布；配置变化时发送 editorSettings，保留前端临时修改。
 - **高亮桥接**：创建 SyntaxService，接收 highlight 请求并发送 highlightResult；主题、语法扩展及 tokenColorCustomizations 变化时失效缓存并发送 highlightThemeChanged。
 - **更新策略**：编辑立即使展示过期并清理旧诊断，300 ms 后检查声明；存在可视化面板时只更新诊断，保留旧快照直到进入视图、保存或显式刷新。关闭文档和扩展时清理状态与定时器。
-- **修改入口**：命令、生命周期、刷新策略、Problems、Webview 消息。与 `package.json`、`src/session.ts`、`media/visualizer.js` 联动；返回的 `getSnapshot()` 供宿主回归测试读取。
+- **修改入口**：命令、生命周期、刷新策略、Problems、Webview 消息。与 `package.json`、`src/session.ts`、`media/visualizer.js` 联动；返回的 `getSnapshot()` 和 `getProjectSnapshot()` 供宿主回归测试读取；snapshot 同时包含模块与项目状态。
+
+## `src/project.ts`
+
+- **职责**：不依赖 VS Code 的项目定位与 Header 收集核心，导出 `ProjectIO`、`HeaderResult`、`ProjectResult`、`locateProject()`、`HeaderParser`。
+- **规则**：设置覆盖 → 模块顶层 PROJECT → 最近祖先 Header；显式绑定不回退，布局互斥，递归目录按相对路径排序，各文件独立解析与恢复。
+- **缓存**：按 URI 与精确文本复用解析结果，保留版本、dirty、UTF-16 行起始偏移和读取错误；不解析跨文件依赖。
+
+## `src/projects.ts`
+
+- **职责**：`ProjectService` 用 workspace.fs / URI 实现 ProjectIO，优先读取打开文档的未保存缓冲区；项目缓存按根 URI 共享，模块绑定独立。
+- **接口**：refresh/get 管理快照，invalidateBinding/rebindIfChanged 处理模块编辑，headerChanged 处理 Header 编辑、保存与关闭，remove/dispose 释放资源。
+- **生命周期**：监听 Header 与查找过的祖先目录，合并文件事件，检查绑定身份、缓存代次和文档版本；独立诊断集合根据解析时行偏移定位，不为诊断打开 Header 文档。
+- **边界**：只服务打开的模块可视化；多视图共享项目，最后一个模块解绑后释放该项目缓存和监听。
 
 ## `src/session.ts`
 
-- **职责**：`DocumentSession` 保存 `version`、`result`、`stale`，隔离文档快照状态。
+- **职责**：`DocumentSession` 保存 `revision`、`version`、`result`、`stale`，隔离文档快照状态。
 - **接口**：`invalidate(version)` 标记过期；`refresh(text, version, kind)` 同步调用解析器并提交新快照。
 - **修改入口**：版本绑定、过期状态和缓存行为；调用方为扩展入口，回归覆盖在解析器测试中。
 
@@ -149,10 +164,19 @@
 - **依赖边界**：还读取本地迁移案例作真实源码回归；这些案例当前被 Git 忽略，运行相关测试前需确保其存在。此套测试不调用 SDK 二进制。
 - **修改入口**：修改词法器、规则、解析算法或快照模型后，为相应行为添加回归用例。
 
+## `tests/project.test.cjs`
+
+- **职责**：内存文件适配器测试纯项目定位、优先级、路径、PROJECT 合法性、Header 布局、递归分组、解析缓存和失败恢复。
+
+## `tests/projects.test.cjs`
+
+- **职责**：使用 URI 感知的模拟 VS Code 文件系统测试真实 ProjectService，涵盖 Remote URI、共享缓存、未保存 Header、异步加载与根切换、文件变更和监听释放。
+- **隔离**：在独立 VM 中加载宿主服务，文件和设置留在内存，不替换其他测试使用的模块缓存。
+
 ## `tests/webview.test.cjs`
 
 - **职责**：通过 jsdom 执行真实 `media/visualizer.js`，模拟 `acquireVsCodeApi()` 和宿主快照消息。
-- **覆盖**：组件点选、默认属性、类型与维度显示、安全文本渲染、代码块缩进、临时修改和字体更新、关联版本代码、过期消息、空结果和错误展示；同时检查扩展元数据、文件关联及命名空间。
+- **覆盖**：组件点选、默认属性、类型与维度显示、安全文本渲染、代码块缩进、临时修改和字体更新、关联版本代码、过期消息、空结果和错误展示；同时检查两个独立展开栏、跨文件身份和草稿隔离、来源、全局刷新，以及扩展元数据、文件关联及命名空间。
 - **修改入口**：Webview 结构、消息协议、详情展示或清单贡献变更时更新断言。
 
 ## `tests/highlight.test.cjs`
@@ -163,7 +187,7 @@
 ## `tests/host/index.cjs`
 
 - **职责**：导出 `run()`，由实际 VS Code 扩展测试宿主加载；`until()` 等待异步状态。
-- **覆盖**：扩展激活、真实 `.vul` / `.utb` 关联、Header 保持 C++ 关联、打开可视化、返回源码、未保存刷新不写回、诊断更新、保存和快照版本。
+- **覆盖**：扩展激活、真实 `.vul` / `.utb` 关联、Header 保持 C++ 关联、打开可视化、返回源码、未保存刷新不写回、诊断更新、保存和快照版本，以及全局 Header、未保存 Header、PROJECT 重绑定和文件增删自动刷新。
 - **隔离**：在临时目录构造测试文件，结束时关闭并清理测试文档；通过扩展导出的 `getSnapshot()` 检查内部状态。
 - **修改入口**：命令、编辑器生命周期、文档事件和文件关联的集成回归。
 
