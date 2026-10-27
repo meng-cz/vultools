@@ -5,13 +5,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const { parse } = require('../out/parser');
-function setup() {
+function setup(initialState) {
   const dom = new JSDOM('<header><span id="filename"></span><button id="source"></button><button id="refresh"></button></header><p id="status"></p><nav id="components"></nav><article id="details"></article><section id="issues"></section>', { runScripts: 'outside-only' });
-  const messages = []; let state;
+  const messages = []; let state = initialState;
   dom.window.acquireVsCodeApi = () => ({ postMessage: message => messages.push(message), getState: () => state, setState: next => { state = next; } });
+  dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/sidebar.js'),'utf8'));
   dom.window.eval(fs.readFileSync(path.join(__dirname,'../media/visualizer.js'),'utf8'));
   const send = (result, extras = {}) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { type: 'snapshot', uri: 'file:///Top.vul', filename: 'Top.vul', version: 1, currentVersion: 1, dirty: false, stale: false, result, ...extras } }));
-  return { dom, messages, send, document: dom.window.document };
+  return { dom, messages, send, getState: () => state, document: dom.window.document };
 }
 test('webview selection displays defaults and an editable local code buffer', () => {
   const ui = setup();
@@ -38,19 +39,19 @@ test('interface selection shows linked implementations with version ownership', 
     assert.match(ui.document.querySelector('#components').textContent,/selected/);
   } finally { ui.dom.window.close(); }
 });
-test('INTERFACE declarations appear directly under a single top Interfaces heading', () => {
+test('INTERFACE declarations appear directly in the first top-level pane', () => {
   const ui = setup();
   try {
     const result = parse('INTERFACE() { PARAMETER(WIDTH,32); REQUEST(out); SERVICE(push); QUERY(value,uint32_t); } USE_VERSION(fast); VERSION(fast) { REGISTER(count,uint32_t); SERVICE(push) {} QUERY(value,uint32_t) { return count; } }');
     // Presentation order must not depend on the position of the container.
     result.components.reverse();
     ui.send(result);
-    const sections = ui.document.querySelector('.module-section > .declarations').children;
-    assert.equal(sections[0].querySelector('h3').textContent, 'Interfaces');
+    const sections = ui.document.querySelectorAll('#components > details');
+    assert.equal(sections[0].querySelector('summary').textContent, 'INTERFACE');
     assert.deepEqual([...sections[0].querySelectorAll('.component')].map(button => `${button.querySelector('.component-kind').textContent} · ${button.querySelector('.component-name').textContent}`), [
       'PARAMETER · WIDTH', 'REQUEST · out()', 'SERVICE · push()', 'QUERY · value → uint32_t'
     ]);
-    assert.equal([...ui.document.querySelectorAll('#components h3')].filter(heading => heading.textContent === 'Interfaces').length, 1);
+    assert.equal([...ui.document.querySelectorAll('#components h3')].filter(heading => heading.textContent === 'Interfaces').length, 0);
     assert.ok(![...ui.document.querySelectorAll('.component')].some(button => button.textContent.startsWith('INTERFACE')));
     sections[0].querySelectorAll('.component')[3].click();
     assert.match(ui.document.querySelector('#details .code-editor').value, /return count/);
@@ -61,8 +62,8 @@ test('empty INTERFACE has one heading and no selectable block', () => {
   const ui = setup();
   try {
     ui.send(parse('INTERFACE() {} REGISTER(count,uint32_t);'));
-    const section = ui.document.querySelector('.module-section > .declarations').firstElementChild;
-    assert.equal(section.querySelector('h3').textContent, 'Interfaces');
+    const section = ui.document.querySelector('#components > details');
+    assert.equal(section.querySelector('summary').textContent, 'INTERFACE');
     assert.equal(section.querySelectorAll('.component').length, 0);
   } finally { ui.dom.window.close(); }
 });
@@ -105,7 +106,7 @@ test('extension metadata binds only the requested extensions and namespaces', ()
   assert.deepEqual(pkg.contributes.languages.flatMap(l => l.extensions),['.vul','.utb']);
   assert.ok(pkg.contributes.commands.every(c => c.command.startsWith('vul-tools.') && c.title.startsWith('VUL Tools:')));
   assert.ok(Object.keys(pkg.contributes.configuration.properties).every(k => k.startsWith('vulTools.')));
-  assert.equal(pkg.contributes.customEditors[0].priority,'option');
+  assert.equal(pkg.contributes.customEditors[0].priority,'default');
 });
 test('list items use bold macro names and names with regular parameter summaries', () => {
   const ui = setup();
@@ -339,20 +340,21 @@ test('global and module sections expand independently and Header identity scopes
   try {
     const module = parse('STRUCT(Same) { int module; };');
     const project = { root:'file:///p', mode:'directory', stale:false, revision:1, messages:[], files:[
-      { uri:'file:///p/header/a/types.hpp', filename:'a/types.hpp', result:parse('STRUCT(Same) { int first; };', 'header') },
-      { uri:'file:///p/header/b/types.hpp', filename:'b/types.hpp', result:parse('STRUCT(Same) { int second; };', 'header') }
+      { uri:'file:///p/header/a/types.uh', filename:'a/types.uh', result:parse('STRUCT(Same) { int first; };', 'header') },
+      { uri:'file:///p/header/b/types.uh', filename:'b/types.uh', result:parse('STRUCT(Same) { int second; };', 'header') }
     ] };
     ui.send(module, { project, refreshId: 1 });
     const sections = ui.document.querySelectorAll('#components > details');
-    assert.deepEqual([...sections].map(s => s.firstElementChild.textContent), ['Global Declarations','Module Contents']);
-    assert.ok([...sections].every(s => s.open));
+    assert.deepEqual([...sections].map(s => s.firstElementChild.textContent), ['Global Declarations','Default Version']);
+    assert.equal(sections[0].open, false);
+    assert.equal(sections[1].open, true);
     sections[0].open = false;
     sections[0].dispatchEvent(new ui.dom.window.Event('toggle'));
     assert.equal(sections[1].open,true);
     const buttons = [...ui.document.querySelectorAll('.component')];
     assert.equal(new Set(buttons.map(b => b.dataset.id)).size,3);
     buttons[0].click();
-    assert.match(ui.document.querySelector('#details').textContent, /Source: a\/types.hpp/);
+    assert.match(ui.document.querySelector('#details').textContent, /Source: a\/types.uh/);
     let editor = ui.document.querySelector('.code-editor');
     editor.value='temporary first'; editor.dispatchEvent(new ui.dom.window.Event('input'));
     buttons[1].click(); assert.equal(ui.document.querySelector('.code-editor').value,'int second;');
@@ -371,7 +373,7 @@ test('single Header has no filename group and refreshing globals preserves modul
   try {
     const module = parse('TICK_IMPL() { work(); }');
     const project = { root:'file:///p', mode:'file', stale:false, revision:1, messages:[], files:[
-      { uri:'file:///p/header.h', filename:'header.h', dirty:true, result:parse('CONFIG(WIDTH,32);', 'header') }
+      { uri:'file:///p/header.uh', filename:'header.uh', dirty:true, result:parse('CONFIG(WIDTH,32);', 'header') }
     ] };
     ui.send(module,{project,refreshId:1});
     assert.equal(ui.document.querySelectorAll('.header-section').length,0);
@@ -382,8 +384,77 @@ test('single Header has no filename group and refreshing globals preserves modul
     editor.value = 'local();'; editor.dispatchEvent(new ui.dom.window.Event('input'));
     ui.send(module,{project:{...project,revision:2},refreshId:1});
     assert.equal(ui.document.querySelector('.code-editor').value,'local();');
-    ui.send(module,{project:{...project,revision:3,messages:['Cannot read header.h'],files:[]},refreshId:1});
+    ui.send(module,{project:{...project,revision:3,messages:['Cannot read header.uh'],files:[]},refreshId:1});
     assert.match(ui.document.querySelector('.global-section').textContent,/Cannot read/);
     assert.equal(ui.document.querySelector('.code-editor').value,'local();');
   } finally { ui.dom.window.close(); }
+});
+test('top panes promote INTERFACE and VERSION, hide USE_VERSION and default only the selected version open', () => {
+  const ui=setup();
+  try {
+    const result=parse('INTERFACE() { QUERY(value,int); } USE_VERSION(fast); CONFIG(WIDTH,32); VERSION(slow) { QUERY(value,int) { return 1; } } VERSION(fast) { QUERY(value,int) { return 2; } }');
+    ui.send(result);
+    const panes=[...ui.document.querySelectorAll('#components > details')];
+    assert.deepEqual(panes.map(p=>p.querySelector('summary').textContent),['INTERFACE','Global Declarations','Module Contents','VERSION slow','VERSION fast ✓ selected']);
+    assert.deepEqual(panes.map(p=>p.open),[true,false,true,false,true]);
+    assert.equal(ui.document.querySelectorAll('.module-section .component').length,1);
+    assert.ok(![...ui.document.querySelectorAll('.component-kind')].some(node=>['VERSION','USE_VERSION','INTERFACE'].includes(node.textContent)));
+    panes[4].querySelector('summary').click();
+    assert.match(ui.document.querySelector('#details h2').textContent,/VERSION · fast/);
+    assert.match(ui.document.querySelector('#details').textContent,/name/);
+    panes[0].querySelector('.component').click();
+    assert.deepEqual([...ui.document.querySelectorAll('.code-editor')].map(editor=>editor.value),['return 1;','return 2;']);
+    assert.match(ui.document.querySelector('#details').textContent,/fast/);
+  } finally {ui.dom.window.close();}
+});
+test('version identity survives source offset changes and manual multiple-version expansion preserves drafts', () => {
+  const ui=setup();
+  try {
+    const code='INTERFACE() {} USE_VERSION(a); VERSION(a) { TICK_IMPL(work) { first(); } } VERSION(b) { TICK_IMPL(work) { second(); } }';
+    ui.send(parse(code),{refreshId:1});
+    let versions=[...ui.document.querySelectorAll('.version-section')];
+    const ids=versions.map(node=>node.dataset.section);
+    versions[1].open=true;versions[1].dispatchEvent(new ui.dom.window.Event('toggle'));
+    versions[1].querySelector('.component').click();
+    let editor=ui.document.querySelector('.code-editor');editor.value='temporary();';editor.dispatchEvent(new ui.dom.window.Event('input'));
+    ui.send(parse(code),{refreshId:1,project:{files:[],messages:[],stale:false,revision:1}});
+    assert.equal(ui.document.querySelector('.code-editor').value,'temporary();');
+    ui.send(parse('// shifted\n'+code),{refreshId:2,version:2,currentVersion:2});
+    versions=[...ui.document.querySelectorAll('.version-section')];
+    assert.deepEqual(versions.map(node=>node.dataset.section),ids);
+    assert.deepEqual(versions.map(node=>node.open),[true,true]);
+    assert.ok(ui.getState().sidebar.expanded[ids[1]]);
+  } finally {ui.dom.window.close();}
+});
+test('new versions receive defaults; removed selection clears and file types retain their own headings', () => {
+  const ui=setup();
+  try {
+    ui.send(parse('REGISTER(r,int);'));
+    assert.equal(ui.document.querySelector('.module-section > summary').textContent,'Default Version');
+    assert.equal(ui.document.querySelector('.interface-section'),null);
+    ui.send(parse('INTERFACE() {} USE_VERSION(a); VERSION(a) {} VERSION(b) {}'));
+    const version=ui.document.querySelectorAll('.version-section')[1];version.querySelector('summary').click();
+    ui.send(parse('INTERFACE() {} USE_VERSION(a); VERSION(a) {}'));
+    assert.match(ui.document.querySelector('#details').textContent,/Select a component/);
+    ui.send(parse('STRUCT(S) { int x; };','header'),{uri:'file:///header.uh',filename:'header.uh'});
+    assert.equal(ui.document.querySelector('.module-section > summary').textContent,'Header Contents');
+    assert.equal(ui.document.querySelectorAll('#components > details').length,1);
+    ui.send(parse('SIMULATION() { run(); }','testbench'),{uri:'file:///Main.utb',filename:'Main.utb'});
+    assert.equal(ui.document.querySelector('.module-section > summary').textContent,'Testbench Contents');
+    assert.ok(ui.document.querySelector('.global-section'));
+    ui.document.querySelector('.module-section .component').click();
+    assert.equal(ui.document.querySelector('.code-editor').value,'run();');
+  } finally {ui.dom.window.close();}
+});
+test('legacy expansion and ratio migrate while nested Header groups keep their existing state', () => {
+  const ui=setup({expansion:{globals:true,module:false,'file:file:///p/a.uh':false},sidebarRatio:0.4});
+  try {
+    ui.send(parse('REGISTER(r,int);'),{project:{root:'file:///p',mode:'directory',files:[{uri:'file:///p/a.uh',filename:'a.uh',result:parse('CONFIG(X,1);','header')}],messages:[],revision:1,stale:false}});
+    assert.equal(ui.document.querySelector('.global-section').open,true);
+    assert.equal(ui.document.querySelector('.module-section').open,false);
+    assert.equal(ui.document.querySelector('.header-section').open,false);
+    assert.equal(ui.getState().sidebar.weights.globals,0.4);
+    assert.equal(ui.getState().sidebar.weights.module,0.6);
+    assert.equal(ui.getState().sidebarRatio,undefined);
+  } finally {ui.dom.window.close();}
 });

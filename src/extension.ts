@@ -13,10 +13,14 @@ export function activate(context: vscode.ExtensionContext) {
   const sessions = new Map<string, DocumentSession>();
   const panels = new Map<vscode.WebviewPanel, vscode.TextDocument>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
-  const projects = new ProjectService(() => { for (const doc of new Set(panels.values())) notify(doc); });
+  const projects = new ProjectService(
+    () => { for (const doc of new Set(panels.values())) notify(doc); },
+    uri => vscode.workspace.textDocuments.some(doc => !doc.isClosed && doc.uri.toString() === uri && doc.uri.path.endsWith('.uh'))
+  );
   let activePanel: vscode.WebviewPanel | undefined;
-  const supported = (doc: vscode.TextDocument) => ['vul', 'vul-testbench'].includes(doc.languageId);
-  const kind = (doc: vscode.TextDocument): FileKind => doc.languageId === 'vul-testbench' ? 'testbench' : 'module';
+  const supported = (doc: vscode.TextDocument) => /\.(vul|uh|utb)$/.test(doc.uri.path) || ['vul', 'vul-testbench'].includes(doc.languageId);
+  const kind = (doc: vscode.TextDocument): FileKind => doc.uri.path.endsWith('.uh') ? 'header'
+    : doc.uri.path.endsWith('.utb') || doc.languageId === 'vul-testbench' ? 'testbench' : 'module';
   function session(doc: vscode.TextDocument) {
     const key = doc.uri.toString();
     if (!sessions.has(key)) sessions.set(key, new DocumentSession());
@@ -65,8 +69,10 @@ export function activate(context: vscode.ExtensionContext) {
     if (timer) { clearTimeout(timer); timers.delete(key); }
     const state = session(doc);
     try {
-      state.refresh(doc.getText(), doc.version, kind(doc)); publish(doc, state); notify(doc);
-      if ([...panels.values()].includes(doc)) void projects.refresh(doc, state.result!.components);
+      state.refresh(doc.getText(), doc.version, kind(doc)); publish(doc, state);
+      if (kind(doc) === 'header') projects.publishDiagnostics();
+      notify(doc);
+      if (kind(doc) !== 'header' && [...panels.values()].includes(doc)) void projects.refresh(doc, state.result!.components);
     }
     catch (error) { state.stale = true; diagnostics.delete(doc.uri); output.appendLine(String(error)); notify(doc); }
   }
@@ -90,8 +96,9 @@ export function activate(context: vscode.ExtensionContext) {
         const nonce = randomBytes(16).toString('hex');
         panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] };
         const css = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'visualizer.css'));
+        const sidebarJs = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'sidebar.js'));
         const js = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'visualizer.js'));
-        panel.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';"><link href="${css}" rel="stylesheet"><title>VUL Tools</title></head><body><header><strong>VUL Tools</strong><span id="filename"></span><button id="source" type="button">Source View</button><button id="refresh" type="button">Refresh</button></header><p id="status" role="status">Loading declarations…</p><main><nav id="components" aria-label="VUL components"></nav><article id="details" aria-label="Component details"><p>Select a component to inspect its API parameters and C++ code.</p></article></main><section id="issues" aria-label="Declaration diagnostics"></section><script nonce="${nonce}" src="${js}"></script></body></html>`;
+        panel.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}';"><link href="${css}" rel="stylesheet"><title>VUL Tools</title></head><body><header><strong>VUL Tools</strong><span id="filename"></span><button id="source" type="button">Source View</button><button id="refresh" type="button">Refresh</button></header><p id="status" role="status">Loading declarations…</p><main><nav id="components" aria-label="VUL components"></nav><article id="details" aria-label="Component details"><p>Select a component to inspect its API parameters and C++ code.</p></article></main><section id="issues" aria-label="Declaration diagnostics"></section><script nonce="${nonce}" src="${sidebarJs}"></script><script nonce="${nonce}" src="${js}"></script></body></html>`;
         panel.onDidChangeViewState(() => { if (panel.active) { activePanel = panel; refresh(doc); } }, undefined, context.subscriptions);
         panel.onDidDispose(() => { panels.delete(panel); if (![...panels.values()].includes(doc)) projects.remove(doc.uri); if (activePanel === panel) activePanel = undefined; }, undefined, context.subscriptions);
         panel.webview.onDidReceiveMessage(async message => {
@@ -111,7 +118,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('vul-tools.openVisual', async (uri?: vscode.Uri) => {
       const document = currentDocument(uri);
       const target = uri ?? document?.uri;
-      if (target?.path.endsWith('.vul')) await vscode.commands.executeCommand('vscode.openWith', target, viewType);
+      if (target && /\.(vul|uh|utb)$/.test(target.path)) await vscode.commands.executeCommand('vscode.openWith', target, viewType);
     }),
     vscode.commands.registerCommand('vul-tools.openSource', async () => {
       const document = currentDocument();
@@ -138,7 +145,8 @@ export function activate(context: vscode.ExtensionContext) {
         const visual = [...panels.values()].includes(doc);
         if (visual) {
           const checked = new DocumentSession(); checked.refresh(doc.getText(), doc.version, kind(doc)); publish(doc, checked);
-          projects.rebindIfChanged(doc, checked.result!.components);
+          if (kind(doc) !== 'header') projects.rebindIfChanged(doc, checked.result!.components);
+          else projects.publishDiagnostics();
         } else refresh(doc);
       }, 300));
     }),

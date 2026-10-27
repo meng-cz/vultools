@@ -47,13 +47,13 @@ function host() {
 }
 const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
 test('remote project cache is shared, dirty Headers invalidate all modules, and watchers release', async () => {
-  const h=host();h.files.set('/ws/header.hpp','CONFIG(WIDTH,32);');
+  const h=host();h.files.set('/ws/header.uh','CONFIG(WIDTH,32);');
   const first=h.document('/ws/First.vul',''),second=h.document('/ws/Second.vul','');
   try {
     await Promise.all([h.service.refresh(first,[]),h.service.refresh(second,[])]);
     assert.equal(h.service.get(first.uri),h.service.get(second.uri));
     assert.equal(h.service.get(first.uri).root,'vscode-remote://ssh-remote+test/ws');
-    const header=h.document('/ws/header.hpp','CONFIG(WIDTH,32);');
+    const header=h.document('/ws/header.uh','CONFIG(WIDTH,32);');
     header.change('CONFIG(WIDTH,64);');h.service.headerChanged(header,false);
     assert.equal(h.service.get(second.uri).stale,true);
     await h.service.refresh(first,[]);
@@ -64,10 +64,10 @@ test('remote project cache is shared, dirty Headers invalidate all modules, and 
   } finally {h.service.dispose();}
 });
 test('a delayed previous root cannot replace a newer module PROJECT binding', async () => {
-  const h=host();h.files.set('/old/header.h','CONFIG(OLD,1);');h.files.set('/new/header.h','CONFIG(NEW,1);');
+  const h=host();h.files.set('/old/header.uh','CONFIG(OLD,1);');h.files.set('/new/header.uh','CONFIG(NEW,1);');
   const doc=h.document('/ws/Top.vul','PROJECT("/old");');let unblock,started;
   const began=new Promise(resolve=>{started=resolve;});const waiting=new Promise(resolve=>{unblock=resolve;});
-  h.setGate(async uri=>{if(uri.path==='/old/header.h'){started();await waiting;}});
+  h.setGate(async uri=>{if(uri.path==='/old/header.uh'){started();await waiting;}});
   try {
     const old=h.service.refresh(doc,parse(doc.getText()).components);await began;
     doc.change('PROJECT("/new");');h.service.invalidateBinding(doc.uri);
@@ -78,12 +78,12 @@ test('a delayed previous root cannot replace a newer module PROJECT binding', as
   } finally {unblock();h.service.dispose();}
 });
 test('an edit during asynchronous loading leaves the result stale until refreshed', async () => {
-  const h=host();h.files.set('/ws/header.h','CONFIG(OLD,1);');const doc=h.document('/ws/Top.vul','');
+  const h=host();h.files.set('/ws/header.uh','CONFIG(OLD,1);');const doc=h.document('/ws/Top.vul','');
   let unblock,started;const began=new Promise(resolve=>{started=resolve;});const waiting=new Promise(resolve=>{unblock=resolve;});
   h.setGate(async()=>{started();await waiting;});
   try {
     const pending=h.service.refresh(doc,[]);await began;
-    const header=h.document('/ws/header.h','CONFIG(NEW,2);');header.isDirty=true;
+    const header=h.document('/ws/header.uh','CONFIG(NEW,2);');header.isDirty=true;
     h.service.headerChanged(header,false);unblock();await pending;
     assert.equal(h.service.get(doc.uri).stale,true);
     await h.service.refresh(doc,[]);
@@ -92,11 +92,11 @@ test('an edit during asynchronous loading leaves the result stale until refreshe
   } finally {unblock();h.service.dispose();}
 });
 test('filesystem notifications reload file sets and removed projects clear diagnostics', async () => {
-  const h=host();h.files.set('/ws/header/a.h','ALIAS(Bad);');const doc=h.document('/ws/Top.vul','');
+  const h=host();h.files.set('/ws/header/a.uh','ALIAS(Bad);');const doc=h.document('/ws/Top.vul','');
   try {
     await h.service.refresh(doc,[]);await delay(0);
     assert.ok([...h.diagnostics.values()].some(issues=>issues.length));
-    h.files.set('/ws/header/b.hpp','CONFIG(B,2);');
+    h.files.set('/ws/header/b.uh','CONFIG(B,2);');
     h.watchers.find(w=>!w.disposed&&w.pattern.base.path==='/ws').create();
     assert.equal(h.service.get(doc.uri).stale,true);
     await delay(220);
@@ -107,14 +107,14 @@ test('filesystem notifications reload file sets and removed projects clear diagn
 });
 
 test('ordinary module edits keep shared Headers current; deleting the nearest project discovers its ancestor', async () => {
-  const h=host();h.files.set('/ws/header.h','CONFIG(OUTER,1);');h.files.set('/ws/inner/header.h','CONFIG(INNER,1);');
+  const h=host();h.files.set('/ws/header.uh','CONFIG(OUTER,1);');h.files.set('/ws/inner/header.uh','CONFIG(INNER,1);');
   const doc=h.document('/ws/inner/Top.vul','REGISTER(r,int);');
   try {
     await h.service.refresh(doc,parse(doc.getText()).components);
     doc.change('REGISTER(other,int);');h.service.invalidateBinding(doc.uri);
     h.service.rebindIfChanged(doc,parse(doc.getText()).components);
     assert.equal(h.service.get(doc.uri).stale,false);
-    h.files.delete('/ws/inner/header.h');
+    h.files.delete('/ws/inner/header.uh');
     h.watchers.find(w=>!w.disposed&&w.pattern.base.path==='/ws/inner').delete();
     await delay(220);
     assert.equal(h.service.get(doc.uri).root,'vscode-remote://ssh-remote+test/ws');

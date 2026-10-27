@@ -9,5 +9,5 @@ runTests({
   vscodeExecutablePath: process.env.VSCODE_TEST_EXECUTABLE || undefined,
   extensionDevelopmentPath: root,
   extensionTestsPath: path.join(root, 'tests', 'host', 'index.cjs'),
-  launchArgs: [path.join(root, 'examples', 'querydemo'), '--no-sandbox', '--disable-gpu', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', ...(process.env.VSCODE_HEADLESS === '1' ? ['--ozone-platform=headless'] : [])]
+  launchArgs: [path.join(root, 'install', 'example', 'querydemo'), '--no-sandbox', '--disable-gpu', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', ...(process.env.VSCODE_HEADLESS === '1' ? ['--ozone-platform=headless'] : [])]
 }).catch(error => { console.error(error); process.exitCode = 1; });

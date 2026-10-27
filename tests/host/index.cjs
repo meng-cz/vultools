@@ -16,7 +16,7 @@ exports.run = async function () {
   const file = vscode.Uri.file(path.join(dir, 'Sample.vul'));
   const contents = 'INTERFACE() { QUERY(value, uint32_t); }\nREGISTER(count,uint32_t);\nQUERY(value,uint32_t) { return count; }';
   await fs.writeFile(file.fsPath, contents);
-  await fs.writeFile(path.join(dir, 'header.hpp'), 'CONFIG(WIDTH,32); ALIAS(Word,uint32_t);');
+  await fs.writeFile(path.join(dir, 'header.uh'), 'CONFIG(WIDTH,32); ALIAS(Word,uint32_t);');
   try {
     const document = await vscode.workspace.openTextDocument(file);
     assert.equal(document.languageId, 'vul');
@@ -58,12 +58,17 @@ exports.run = async function () {
     await until(() => vscode.languages.getDiagnostics(file).some(d => d.message.includes('missing required')));
     await document.save();
     assert.equal(api.getSnapshot(file).stale, false);
-    const headerFile = vscode.Uri.file(path.join(dir, 'header.hpp'));
+    const headerFile = vscode.Uri.file(path.join(dir, 'header.uh'));
     await fs.writeFile(headerFile.fsPath, 'CONFIG(WIDTH,32); ALIAS(Word,uint32_t);');
     const header = await vscode.workspace.openTextDocument(headerFile);
     await vscode.window.showTextDocument(header);
-    assert.equal(header.languageId, 'cpp'); assert.equal(vscode.languages.getDiagnostics(header.uri).length, 0);
-    // Header buffers remain C++, while project refresh reads their unsaved contents.
+    const headerLanguage = header.languageId; assert.equal(vscode.languages.getDiagnostics(header.uri).length, 0);
+    await vscode.commands.executeCommand('vul-tools.openVisual', headerFile);
+    await until(() => api.getSnapshot(headerFile)?.result?.fileKind === 'header');
+    assert.equal(api.getProjectSnapshot(headerFile), undefined, 'standalone Header must not duplicate project panes');
+    await vscode.commands.executeCommand('vul-tools.openSource');
+    await until(() => vscode.window.activeTextEditor?.document === header);
+    // Project refresh reads unsaved .uh buffers without changing their editor language.
     const headerEdit = new vscode.WorkspaceEdit();
     headerEdit.replace(header.uri, new vscode.Range(header.positionAt(0), header.positionAt(header.getText().length)), 'CONFIG(WIDTH,64); ALIAS(Broken);');
     await vscode.workspace.applyEdit(headerEdit);
@@ -71,6 +76,7 @@ exports.run = async function () {
     await vscode.commands.executeCommand('vul-tools.refresh', file);
     await until(() => !api.getProjectSnapshot(file).stale && api.getProjectSnapshot(file).files[0].dirty);
     assert.equal(api.getProjectSnapshot(file).files[0].result.components[0].attributes[1].value, '64');
+    assert.equal(header.languageId, headerLanguage);
     await until(() => vscode.languages.getDiagnostics(header.uri).some(d => d.message.includes('missing required')));
     assert.match(await fs.readFile(headerFile.fsPath, 'utf8'), /32/);
     const fixHeader = new vscode.WorkspaceEdit();
@@ -82,16 +88,16 @@ exports.run = async function () {
     // PROJECT rebinds to a recursive Header directory, preserving module syntax checks.
     const projectDir = path.join(dir, 'directory-project');
     await fs.mkdir(path.join(projectDir, 'header', 'nested'), { recursive: true });
-    await fs.writeFile(path.join(projectDir, 'header', 'types.hpp'), 'ALIAS(LocalWord,uint64_t);');
-    await fs.writeFile(path.join(projectDir, 'header', 'nested', 'types.hpp'), 'CONFIG(DEPTH,8);');
+    await fs.writeFile(path.join(projectDir, 'header', 'types.uh'), 'ALIAS(LocalWord,uint64_t);');
+    await fs.writeFile(path.join(projectDir, 'header', 'nested', 'types.uh'), 'CONFIG(DEPTH,8);');
     const bindingEdit = new vscode.WorkspaceEdit();
     bindingEdit.replace(file, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), 'PROJECT("directory-project"); INTERFACE() {}');
     await vscode.workspace.applyEdit(bindingEdit);
     await vscode.commands.executeCommand('vul-tools.refresh', file);
     await until(() => api.getProjectSnapshot(file)?.root === vscode.Uri.file(projectDir).toString() && !api.getProjectSnapshot(file).stale);
-    assert.deepEqual(api.getProjectSnapshot(file).files.map(f => f.filename), ['nested/types.hpp', 'types.hpp']);
+    assert.deepEqual(api.getProjectSnapshot(file).files.map(f => f.filename), ['nested/types.uh', 'types.uh']);
     assert.equal(vscode.languages.getDiagnostics(file).length, 0);
-    const addedHeader = path.join(projectDir, 'header', 'added.h');
+    const addedHeader = path.join(projectDir, 'header', 'added.uh');
     await fs.writeFile(addedHeader, 'CONFIG(ADDED,1);');
     await until(() => !api.getProjectSnapshot(file).stale && api.getProjectSnapshot(file).files.length === 3);
     await fs.unlink(addedHeader);
@@ -101,6 +107,10 @@ exports.run = async function () {
     await fs.writeFile(mainFile.fsPath, 'SIMULATION() {}');
     const main = await vscode.workspace.openTextDocument(mainFile);
     assert.equal(main.languageId, 'vul-testbench');
+    await vscode.commands.executeCommand('vul-tools.openVisual', mainFile);
+    await until(() => api.getSnapshot(mainFile)?.result?.fileKind === 'testbench');
+    await vscode.commands.executeCommand('vul-tools.openSource');
+    await until(() => vscode.window.activeTextEditor?.document === main);
     await vscode.window.showTextDocument(main); await vscode.commands.executeCommand('vul-tools.refresh');
     assert.equal(vscode.languages.getDiagnostics(main.uri).length, 0);
     assert.equal(await fs.readFile(file.fsPath, 'utf8'), document.getText());

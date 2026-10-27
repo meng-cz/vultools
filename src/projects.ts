@@ -42,13 +42,13 @@ export class ProjectService implements vscode.Disposable {
   private sequence = 0;
   private disposed = false;
   private diagnostics = vscode.languages.createDiagnosticCollection('VUL Tools Headers');
-  constructor(private changed: () => void) {}
+  constructor(private changed: () => void, private ownsDiagnostics: (uri: string) => boolean = () => false) {}
   get(uri: vscode.Uri): ProjectResult | undefined {
     const binding = this.bindings.get(key(uri));
     return binding?.root ? this.entries.get(binding.root)?.result : binding?.result;
   }
   private watcher(root: string, callback: () => void) {
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.parse(root), '{header,header.h,header.hpp,header/**}'));
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.parse(root), '{header,header.uh,header/**}'));
     watcher.onDidCreate(callback); watcher.onDidChange(callback); watcher.onDidDelete(callback);
     return watcher;
   }
@@ -99,7 +99,7 @@ export class ProjectService implements vscode.Disposable {
         return file.result && doc && !doc.isClosed && file.version !== doc.version;
       })) { this.invalidateRoot(root, false); return; }
       entry.result = { ...result, revision: ++this.sequence };
-      this.publish(); this.changed();
+      this.publishDiagnostics(); this.changed();
     })().catch(error => {
       if (this.entries.get(root) === entry && epoch === entry.epoch) {
         entry.result = { ...entry.result, stale: true, messages: [String(error)], revision: ++this.sequence }; this.changed();
@@ -124,7 +124,7 @@ export class ProjectService implements vscode.Disposable {
     const entry = this.entries.get(root); if (!entry) return;
     entry.epoch++;
     entry.result = { ...entry.result, stale: true, revision: ++this.sequence };
-    this.publish(); this.changed();
+    this.publishDiagnostics(); this.changed();
     if (reload) {
       clearTimeout(entry.timer);
       entry.timer = setTimeout(() => { void (async () => { await entry.pending; if (this.entries.get(root) === entry) await this.load(root, entry); })(); }, 150);
@@ -144,13 +144,14 @@ export class ProjectService implements vscode.Disposable {
     const uri = key(doc.uri);
     for (const [root, entry] of this.entries) {
       const header = io.join(root, 'header');
-      if (entry.result.files.some(file => file.uri === uri) || uri === io.join(root, 'header.h') || uri === io.join(root, 'header.hpp') || uri.startsWith(header + '/')) this.invalidateRoot(root, saved);
+      if (entry.result.files.some(file => file.uri === uri) || uri === io.join(root, 'header.uh') || uri.startsWith(header + '/') && uri.endsWith('.uh')) this.invalidateRoot(root, saved);
     }
   }
-  private publish() {
+  publishDiagnostics() {
     this.diagnostics.clear();
     for (const entry of this.entries.values()) if (!entry.result.stale) for (const file of entry.result.files) {
       const uri = vscode.Uri.parse(file.uri);
+      if (this.ownsDiagnostics(file.uri)) continue;
       if (!vscode.workspace.getConfiguration('vulTools', uri).get('diagnostics.enabled', true) || !file.result) continue;
       const positionAt = (offset: number) => {
         const starts = file.lineStarts ?? [0];
@@ -171,7 +172,7 @@ export class ProjectService implements vscode.Disposable {
   private releaseUnused() {
     const roots = new Set([...this.bindings.values()].map(b => b.root));
     for (const [root, entry] of this.entries) if (!roots.has(root)) { clearTimeout(entry.timer); entry.watcher.dispose(); this.entries.delete(root); }
-    this.publish();
+    this.publishDiagnostics();
   }
   dispose() {
     this.disposed = true;

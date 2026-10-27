@@ -7,7 +7,8 @@ const drafts = new Map();
 const expansion = vscode.getState()?.expansion || {};
 let displayFiles = [];
 const identity = (uri, id) => JSON.stringify([uri, id]);
-const persist = () => vscode.setState({ selected, expansion });
+let sidebar;
+const persist = () => vscode.setState({ selected, expansion, sidebar: sidebar?.serializeState() });
 let editorOptions = { tabSize: 4 };
 let nextHighlightId = 0;
 const highlightRequests = new Map();
@@ -19,6 +20,9 @@ const element = (tag, text, parent, className) => {
   return node;
 };
 const flatten = nodes => nodes.flatMap(n => [n, ...flatten(n.children)]);
+sidebar = new window.VulSidebar.Sidebar(byId('components'), {
+  state: vscode.getState()?.sidebar, expansion, ratio: vscode.getState()?.sidebarRatio, onChange: persist
+});
 function configureEditor(options) {
   if (!options) return;
   editorOptions = options;
@@ -91,6 +95,7 @@ function detail(node) {
   highlightRequests.clear();
   selected = node.id; persist();
   for (const button of byId('components').querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.id === selected));
+  for (const heading of byId('components').querySelectorAll('summary[data-id]')) heading.setAttribute('aria-current', String(heading.dataset.id === selected));
   const pane = byId('details'); pane.replaceChildren();
   element('h2', `${node.kind} · ${node.name}`, pane);
   const file = displayFiles.find(file => flatten(file.result.components).some(entry => entry.id === node.id));
@@ -100,7 +105,9 @@ function detail(node) {
   const parent = all.find(n => n.children.some(child => child.id === node.id));
   if (parent) element('p', `Scope: ${parent.kind} ${parent.name}${parent.selected ? ' (selected version)' : ''}`, pane, 'muted');
   if (node.condition) element('p', `Conditional source (not evaluated): ${node.condition}`, pane, 'notice');
-  attributes('API parameters', node.attributes, pane);
+  const apiParameters = node.kind === 'TICK_IMPL' && !node.attributes.some(attr => attr.name === 'name')
+    ? [...node.attributes, { name: 'name', value: '', explicit: false }] : node.attributes;
+  attributes('API parameters', apiParameters, pane);
   attributes('Child parameter overrides', node.overrides, pane);
   if (node.parameters.length) {
     element('h3', 'Business parameters', pane);
@@ -240,6 +247,7 @@ function list(nodes, parent, hasInterface = false, root = true) {
   if (interfaceBlocks.length) categories.set('Interfaces', interfaceBlocks.flatMap(node => node.children));
   else if (root && nodes.some(node => node.category === 'Interfaces')) categories.set('Interfaces', []);
   for (const node of nodes) {
+    if (node.kind === 'USE_VERSION') continue;
     if (root && node.kind === 'INTERFACE') continue;
     const category = hasInterface && node.category === 'Interfaces' ? 'Implementations' : node.category;
     if (!categories.has(category)) categories.set(category, []);
@@ -256,15 +264,65 @@ function scopedFile(file) {
     relatedIds: node.relatedIds.map(id => identity(file.uri, id)), children: scope(node.children) }));
   return { ...file, result: { ...file.result, components: scope(file.result.components) } };
 }
+// Nested Header file groups are ordinary disclosures, not viewport panes.
 function collapsible(parent, title, key, className) {
   const section = element('details', undefined, parent, className);
-  section.dataset.section = key;
-  section.open = expansion[key] !== false;
+  section.dataset.section = key; section.open = expansion[key] !== false;
   element('summary', title, section);
   section.addEventListener('toggle', () => {
     if (section.isConnected) { expansion[key] = section.open; persist(); }
   });
   return element('div', undefined, section, 'declarations');
+}
+function updateSidebarHeight() {
+  const main = byId('components').closest('main');
+  if (main) document.documentElement.style.setProperty('--vul-workspace-height', `${Math.max(240, window.innerHeight - main.getBoundingClientRect().top - 16)}px`);
+  sidebar.resize();
+}
+function globalContents(parent) {
+  const project = snapshot.project;
+  if (!project) { element('p', 'Loading global declarations…', parent, 'muted'); return; }
+  if (project.root) element('p', project.root, parent, 'muted project-root');
+  if (project.stale) element('p', 'Global declarations are out of date — refresh to inspect current Headers.', parent, 'notice');
+  for (const note of project.messages) element('p', note, parent, 'notice');
+  for (const file of project.files) {
+    const group = project.mode === 'directory' ? collapsible(parent, file.filename, `file:${file.uri}`, 'header-section') : parent;
+    if (file.dirty) element('p', 'Unsaved Header', group, 'notice');
+    if (file.error) element('p', file.error, group, 'error');
+    const scoped = displayFiles.find(entry => entry.uri === file.uri);
+    if (scoped) list(scoped.result.components, group);
+  }
+  if (!project.files.length && !project.messages.length) element('p', 'No global declarations.', parent, 'muted');
+}
+function sidebarSections() {
+  const { fileKind, components } = displayFiles[0].result;
+  const module = fileKind === 'module';
+  const interfaces = module ? components.filter(node => node.kind === 'INTERFACE') : [];
+  const versions = module ? components.filter(node => node.kind === 'VERSION') : [];
+  const sections = [];
+  if (interfaces.length) sections.push({ id: 'interface', title: 'INTERFACE', className: 'interface-section', defaultOpen: true, initialFit: { maxShare: 0.35 },
+    render(parent) { for (const block of interfaces) for (const node of block.children) component(node, parent, true); } });
+  if (fileKind !== 'header') sections.push({ id: 'globals', title: 'Global Declarations', className: 'global-section', defaultOpen: !module, defaultShare: 0.3, render: globalContents });
+  const local = components.filter(node => node.kind !== 'USE_VERSION' && (!module || !['INTERFACE', 'VERSION'].includes(node.kind)));
+  sections.push({ id: 'module', title: fileKind === 'header' ? 'Header Contents' : fileKind === 'testbench' ? 'Testbench Contents' : versions.length ? 'Module Contents' : 'Default Version',
+    className: 'module-section', defaultOpen: true, render(parent) {
+      list(local, parent, interfaces.length > 0);
+      if (!local.length) element('p', 'No recoverable VUL declarations.', parent, 'muted');
+    } });
+  const occurrences = new Map();
+  for (const version of versions) {
+    const signature = JSON.stringify([version.name, version.condition || '']);
+    const occurrence = occurrences.get(signature) || 0; occurrences.set(signature, occurrence + 1);
+    sections.push({ id: `version:${JSON.stringify([snapshot.uri, version.name, version.condition || '', occurrence])}`,
+      title: `VERSION ${version.name}${version.selected ? ' ✓ selected' : ''}`, className: 'version-section',
+      componentId: version.id, defaultOpen: !!version.selected, onSelect: () => detail(version),
+      render(parent) {
+        if (version.condition) element('p', `Conditional source (not evaluated): ${version.condition}`, parent, 'notice');
+        list(version.children.filter(node => node.kind !== 'USE_VERSION'), parent, interfaces.length > 0, false);
+        if (!version.children.length) element('p', 'No recoverable VUL declarations.', parent, 'muted');
+      } });
+  }
+  return sections;
 }
 function clearFileDrafts(uri) {
   for (const key of drafts.keys()) if (key.startsWith(`[${JSON.stringify(uri)},`)) drafts.delete(key);
@@ -295,26 +353,7 @@ window.addEventListener('message', event => {
   byId('filename').textContent = message.filename;
   byId('status').textContent = message.stale ? 'Out of date — refresh to inspect the current document.' : `${message.dirty ? 'Unsaved document' : 'Saved document'} · ${message.result.issues.length} declaration issue(s) · Code edits stay in this view`;
   byId('status').className = message.stale ? 'notice' : '';
-  const nav = byId('components'); nav.replaceChildren();
-  const globals = collapsible(nav, 'Global Declarations', 'globals', 'global-section');
-  const project = message.project;
-  if (!project) element('p', 'Loading global declarations…', globals, 'muted');
-  else {
-    if (project.root) element('p', project.root, globals, 'muted project-root');
-    if (project.stale) element('p', 'Global declarations are out of date — refresh to inspect current Headers.', globals, 'notice');
-    for (const note of project.messages) element('p', note, globals, 'notice');
-    for (const file of project.files) {
-      const parent = project.mode === 'directory' ? collapsible(globals, file.filename, `file:${file.uri}`, 'header-section') : globals;
-      if (file.dirty) element('p', 'Unsaved Header', parent, 'notice');
-      if (file.error) element('p', file.error, parent, 'error');
-      const scoped = displayFiles.find(entry => entry.uri === file.uri);
-      if (scoped) list(scoped.result.components, parent);
-    }
-    if (!project.files.length && !project.messages.length) element('p', 'No global declarations.', globals, 'muted');
-  }
-  const module = collapsible(nav, 'Module Contents', 'module', 'module-section');
-  list(displayFiles[0].result.components, module);
-  if (!message.result.components.length) element('p', 'No recoverable VUL declarations.', module);
+  sidebar.setSections(sidebarSections());
   const found = displayFiles.flatMap(file => flatten(file.result.components)).find(n => n.id === selected && n.kind !== 'INTERFACE');
   if (found) detail(found);
   else { selected = undefined; persist(); byId('details').replaceChildren(); element('p', 'Select a component to inspect its API parameters and C++ code.', byId('details')); }
@@ -322,7 +361,14 @@ window.addEventListener('message', event => {
   const issues = displayFiles.flatMap(file => file.result.issues.map(issue => ({ ...issue, filename: file.filename })));
   if (issues.length) element('h2', 'Declaration diagnostics', byId('issues'));
   for (const issue of issues) element('p', `${issue.filename}: ${issue.severity}: ${issue.message}`, byId('issues'), issue.severity);
+  updateSidebarHeight();
 });
 byId('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
 byId('source').addEventListener('click', () => vscode.postMessage({ type: 'source' }));
+window.addEventListener('resize', updateSidebarHeight);
+window.addEventListener('unload', () => sidebar.dispose());
+if (typeof ResizeObserver !== 'undefined') {
+  const observer = new ResizeObserver(updateSidebarHeight);
+  for (const node of [document.querySelector('body > header'), byId('status')]) if (node) observer.observe(node);
+}
 vscode.postMessage({ type: 'ready' });

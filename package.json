@@ -73,9 +73,15 @@
         "selector": [
           {
             "filenamePattern": "*.vul"
+          },
+          {
+            "filenamePattern": "*.uh"
+          },
+          {
+            "filenamePattern": "*.utb"
           }
         ],
-        "priority": "option"
+        "priority": "default"
       }
     ],
     "commands": [
@@ -99,7 +105,7 @@
       "editor/title": [
         {
           "command": "vul-tools.openVisual",
-          "when": "resourceExtname == .vul && activeCustomEditorId != vul-tools.visualizer",
+          "when": "(resourceExtname == .vul || resourceExtname == .uh || resourceExtname == .utb) && activeCustomEditorId != vul-tools.visualizer",
           "group": "navigation"
         },
         {
@@ -109,7 +115,7 @@
         },
         {
           "command": "vul-tools.refresh",
-          "when": "resourceExtname == .vul || resourceExtname == .utb",
+          "when": "(resourceExtname == .vul || resourceExtname == .uh || resourceExtname == .utb)",
           "group": "navigation"
         }
       ]
@@ -139,7 +145,8 @@
     "test:host": "npm run build && node scripts/test-host.cjs",
     "test:examples": "node scripts/test-examples.cjs",
     "package": "vsce package --no-dependencies",
-    "example": "node scripts/build-example.cjs"
+    "example": "node scripts/build-example.cjs",
+    "test:webview": "npm run build && node scripts/test-webview.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

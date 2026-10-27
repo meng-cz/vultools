@@ -44,7 +44,7 @@ export async function locateProject(io: ProjectIO, moduleUri: string, components
   let dir = parent;
   for (;;) {
     searched.push(dir);
-    const entries = await Promise.all(['header', 'header.h', 'header.hpp'].map(name => io.stat(io.join(dir, name))));
+    const entries = await Promise.all(['header', 'header.uh'].map(name => io.stat(io.join(dir, name))));
     if (entries.some(Boolean)) return { root: dir, searched };
     const next = io.parent(dir);
     if (next === dir) return { searched };
@@ -61,11 +61,11 @@ export class HeaderParser {
     const seen = new Set<string>();
     try {
       if (await io.stat(root) !== 'directory') throw new Error('Project root is not a readable directory.');
-      const names = ['header', 'header.h', 'header.hpp'];
+      const names = ['header', 'header.uh'];
       const kinds = await Promise.all(names.map(name => io.stat(io.join(root, name))));
-      if (kinds.filter(Boolean).length > 1) throw new Error('Conflicting Header layout: use only header/, header.h or header.hpp.');
+      if (kinds.filter(Boolean).length > 1) throw new Error('Conflicting Header layout: use only header/ or header.uh.');
       const index = kinds.findIndex(Boolean);
-      if (index < 0) throw new Error('No header/, header.h or header.hpp found in the selected project.');
+      if (index < 0) throw new Error('No header/ or header.uh found in the selected project.');
       output.mode = index === 0 ? 'directory' : 'file';
       if (index === 0) {
         if (kinds[0] !== 'directory') throw new Error('header must be a directory.');
@@ -74,7 +74,7 @@ export class HeaderParser {
             for (const [name, kind] of await io.entries(dir)) {
               const uri = io.join(dir, name), relative = prefix + name;
               if (kind === 'directory') await visit(uri, relative + '/');
-              else if (kind === 'file' && /\.(h|hpp)$/.test(name)) files.push([uri, relative]);
+              else if (kind === 'file' && /\.uh$/.test(name)) files.push([uri, relative]);
             }
           } catch (error) { output.messages.push(`Cannot read ${prefix || 'header/'}: ${String(error)}`); }
         };

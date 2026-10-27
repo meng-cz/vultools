@@ -1,11 +1,11 @@
 :root { color-scheme: light dark; }
-body { padding: 16px; color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); }
+body { margin: 0; padding: 16px; color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); }
 header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 12px; }
 #filename { flex: 1; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); }
 button { font: inherit; cursor: pointer; padding: 6px 10px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 1px solid transparent; border-radius: 3px; }
 button:hover { background: var(--vscode-button-hoverBackground); }
 button:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-main { display: grid; grid-template-columns: minmax(230px, 30%) minmax(0, 1fr); gap: 20px; min-height: 55vh; }
+main { display: grid; grid-template-columns: minmax(230px, 30%) minmax(0, 1fr); gap: 20px; height: var(--vul-workspace-height, calc(100vh - 150px)); min-height: 240px; }
 nav { border-right: 1px solid var(--vscode-panel-border); padding-right: 12px; }
 h3 { font-size: 1em; margin-top: 20px; }
 .component { display: block; text-align: left; width: 100%; margin: 4px 0; color: var(--vscode-editor-foreground); background: transparent; overflow-wrap: anywhere; }
@@ -39,3 +39,34 @@ nav summary { cursor: pointer; font-weight: 700; padding: 8px 0; overflow-wrap: 
 nav summary:focus-visible { outline: 2px solid var(--vscode-focusBorder); }
 .header-section { margin-left: 10px; }
 .project-root { font-size: .85em; overflow-wrap: anywhere; }
+
+/* Each bounded pane scrolls independently; navigation overflows only when its minima cannot fit. */
+#components { display: grid; align-content: start; min-height: 0; overflow: auto; }
+#components > details { height: 100%; min-height: 0; margin: 0; overflow: hidden; }
+#components > details > summary { box-sizing: border-box; height: 36px; padding: 8px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--vscode-sideBarSectionHeader-background, var(--vscode-editor-background)); }
+#components > details > .declarations { box-sizing: border-box; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; padding: 0 4px 8px; scrollbar-gutter: stable; scrollbar-color: auto; scrollbar-width: auto; }
+#components > details > .declarations::-webkit-scrollbar { width: 10px; }
+#components > details > .declarations::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+#components > details > .declarations::-webkit-scrollbar-track { background: transparent; }
+#components > details > .declarations::-webkit-scrollbar-thumb { min-height: 20px; background: var(--vscode-scrollbarSlider-background, var(--vscode-descriptionForeground)); border-radius: 5px; }
+#components > details > .declarations::-webkit-scrollbar-thumb:hover { background: var(--vscode-scrollbarSlider-hoverBackground, var(--vscode-descriptionForeground)); }
+#components > details > .declarations::-webkit-scrollbar-thumb:active { background: var(--vscode-scrollbarSlider-activeBackground, var(--vscode-focusBorder)); }
+#components > details:not([open]) > .declarations { display: none; }
+/* Only top-level expanded contents receive the stronger hierarchy guide. */
+#components > details[open] > .declarations {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 3px solid var(--vscode-contrastActiveBorder, var(--vscode-focusBorder, #3794ff));
+}
+#details { min-height: 0; overflow: auto; }
+.sidebar-divider { position: relative; box-sizing: border-box; height: 10px; cursor: row-resize; touch-action: none; border-top: 1px solid var(--vscode-panel-border, currentColor); border-bottom: 1px solid var(--vscode-panel-border, currentColor); background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); }
+.sidebar-divider::after { content: ''; position: absolute; width: 48px; height: 3px; left: calc(50% - 24px); top: 2px; border-radius: 2px; background: var(--vscode-descriptionForeground, currentColor); }
+.sidebar-divider:hover, .sidebar-divider:focus-visible, .resizing-sidebar .sidebar-divider { background: var(--vscode-focusBorder); outline: none; }
+.resizing-sidebar, .resizing-sidebar * { cursor: row-resize !important; user-select: none !important; }
+@media (max-width: 650px) {
+  main { height: auto; min-height: 0; }
+  #components { height: min(65vh, var(--vul-workspace-height, 500px)); min-height: 240px; padding-bottom: 0; }
+  #details { max-height: 70vh; }
+}
+
+.version-section > summary[aria-current=true] { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }

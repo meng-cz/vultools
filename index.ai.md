@@ -1,6 +1,6 @@
 # VUL Tools 项目文件索引
 
-本索引供 AI 开发时快速定位职责、调用关系与修改入口，以当前实现为准。项目是 VS Code 扩展，名称为 **VUL Tools**，扩展标识为 `mengcz-sdu.vul-tools`。硬件模块绑定 `.vul`，测试入口绑定 `.utb`；Header 保持 `.h/.hpp` 的现有语言关联。
+本索引供 AI 开发时快速定位职责、调用关系与修改入口，以当前实现为准。项目是 VS Code 扩展，名称为 **VUL Tools**，扩展标识为 `mengcz-sdu.vul-tools`。可视化入口支持 `.vul` 模块、`.utb` 测试入口和 `.uh` Header；全局 Header 使用 `header.uh` 或 `header/` 下的 `.uh`，不额外注册 Header 语言。
 
 项目级数据流：`src/extension.ts` → `src/projects.ts`（VS Code 生命周期、监听、共享缓存）→ `src/project.ts`（定位与收集）→ Header 模式解析；项目结果与模块结果分别发布，组件身份以 URI 隔离。
 
@@ -20,18 +20,18 @@
 - **编辑器设置**：`editorOptions()` 按文档和语言获取字体、字号、字重、行高及 Tab 宽度，随 snapshot 发布；配置变化时发送 editorSettings，保留前端临时修改。
 - **高亮桥接**：创建 SyntaxService，接收 highlight 请求并发送 highlightResult；主题、语法扩展及 tokenColorCustomizations 变化时失效缓存并发送 highlightThemeChanged。
 - **更新策略**：编辑立即使展示过期并清理旧诊断，300 ms 后检查声明；存在可视化面板时只更新诊断，保留旧快照直到进入视图、保存或显式刷新。关闭文档和扩展时清理状态与定时器。
-- **修改入口**：命令、生命周期、刷新策略、Problems、Webview 消息。与 `package.json`、`src/session.ts`、`media/visualizer.js` 联动；返回的 `getSnapshot()` 和 `getProjectSnapshot()` 供宿主回归测试读取；snapshot 同时包含模块与项目状态。
+- **修改入口**：命令、生命周期、刷新策略、Problems、Webview 消息。与 `package.json`、`src/session.ts`、`media/visualizer.js` 联动；按扩展名选择 module/testbench/header 解析模式；Header 视图仅展示当前文件，模块与测试入口关联项目全局声明；返回的 `getSnapshot()` 和 `getProjectSnapshot()` 供宿主回归测试读取；snapshot 同时包含模块与项目状态。
 
 ## `src/project.ts`
 
 - **职责**：不依赖 VS Code 的项目定位与 Header 收集核心，导出 `ProjectIO`、`HeaderResult`、`ProjectResult`、`locateProject()`、`HeaderParser`。
-- **规则**：设置覆盖 → 模块顶层 PROJECT → 最近祖先 Header；显式绑定不回退，布局互斥，递归目录按相对路径排序，各文件独立解析与恢复。
-- **缓存**：按 URI 与精确文本复用解析结果，保留版本、dirty、UTF-16 行起始偏移和读取错误；不解析跨文件依赖。
+- **规则**：设置覆盖 → 模块顶层 PROJECT → 最近祖先 `header.uh` 或 `header/`；显式绑定不回退，布局互斥，递归目录按相对路径排序，各文件独立解析与恢复。
+- **缓存**：仅收集 `.uh`，按 URI 与精确文本复用解析结果，保留版本、dirty、UTF-16 行起始偏移和读取错误；不解析跨文件依赖。
 
 ## `src/projects.ts`
 
 - **职责**：`ProjectService` 用 workspace.fs / URI 实现 ProjectIO，优先读取打开文档的未保存缓冲区；项目缓存按根 URI 共享，模块绑定独立。
-- **接口**：refresh/get 管理快照，invalidateBinding/rebindIfChanged 处理模块编辑，headerChanged 处理 Header 编辑、保存与关闭，remove/dispose 释放资源。
+- **接口**：refresh/get 管理快照，invalidateBinding/rebindIfChanged 处理模块编辑，headerChanged 处理 Header 编辑、保存与关闭，remove/dispose 释放资源，publishDiagnostics 更新项目诊断；ownsDiagnostics 回调跳过由直接打开文档负责的 Header，避免重复诊断。
 - **生命周期**：监听 Header 与查找过的祖先目录，合并文件事件，检查绑定身份、缓存代次和文档版本；独立诊断集合根据解析时行偏移定位，不为诊断打开 Header 文档。
 - **边界**：只服务打开的模块可视化；多视图共享项目，最后一个模块解绑后释放该项目缓存和监听。
 
@@ -87,14 +87,27 @@
 
 - **职责**：Webview 浏览器端逻辑，接收 `snapshot`，按分类和容器层级渲染组件，并处理组件点选。
 - **关键函数**：`list()` 渲染组件树；`detail()` 展示属性、签名、关联实现、代码块和诊断；`attributes()` 构造参数表；`element()` 使用 `textContent` 创建文本节点。
-- **接口列表**：模块的 INTERFACE 内容直接列在顶部唯一的 Interfaces 标题下，容器本身不可点选；对应实现按 Implementations 分类，版本层级保留。
+- **接口列表**：模块的 INTERFACE 内容直接列在最上方的 INTERFACE 一级栏内，不重复显示容器条目或 Interfaces 分类；对应实现按 Implementations 分类，版本层级保留。
+- **一级栏构造**：sidebarSections() 将模块投影为 INTERFACE、Global Declarations、Module Contents / Default Version、各 VERSION；隐藏 USE_VERSION 条目，保留原始解析树作详情和关联查询。VERSION 使用 URI、名称、条件和同名次序作为稳定状态 ID。
+- **布局桥接**：创建 VulSidebar.Sidebar，提供 render/onSelect 回调；updateSidebarHeight() 计算视口高度后调用 resize()。折叠与权重交由 sidebar.js 管理，嵌套 Header 文件仍使用普通 collapsible()；persist() 同时保存选中项、嵌套展开状态和新版 sidebar 状态。
+- **TICK_IMPL 详情**：API parameters 始终显示可选 name；缺省时仅在展示层补充空值行，不修改解析模型或声明校验。
 - **列表展示**：`component()` 显示加粗宏名和完整名称：REQUEST / SERVICE 将业务参数和有效握手返回值融入函数签名，PARAMETER 显示 NAME = value。`summary()` 仅保留尚未融入名称的显式参数，字号和颜色与名称一致但不加粗，详情保留默认值。`submodules()` / `instanceReferences()` 按当前作用域中的 CHILD_INSTANCE 分组子接口与连接，CR-CS 在两端共享同一组件 ID，数组按声明归组。
 - **类型与代码框**：`listType()` / `dimensionSuffix()` 合成目标类型；ALIAS / QUERY 用 name → type，REGISTER、QUEUE、BRAM、WIRE 和流水线数据端点用 name<type>，类型放入加粗名称内部。`codeBody()` 处理展示用的去括号与公共缩进；`configureEditor()` 应用宿主字体设置。textarea 的修改只进入 drafts，切换组件保留，刷新快照清除，不向宿主发送文件编辑动作。
 - **高亮层**：requestHighlight() 防抖请求词法着色，applyHighlight() 以文本节点渲染 token 并同步滚动；旧请求和旧文本结果丢弃。高亮请求发送临时代码用于分词，不产生文件写入。
 - **状态与协议**：使用 Webview state 保存所选组件 ID；按文档版本过滤旧消息；显示未保存、过期及错误状态。仅向宿主发送 `ready`、`refresh`、`source`，不发送源码修改。
 - **修改入口**：详情内容、分类导航、组件选择和展示状态；结构改动需同步宿主 HTML、CSS 和 DOM 测试。源代码不能直接拼接成 HTML。
 
+## `media/sidebar.js`
+
+- **职责**：统一的有序一级栏渲染和分栏交互模块；浏览器导出 VulSidebar，Node 导出相同 API，纯布局计算不访问 DOM。
+- **接口**：Sidebar(container, options)；setSections(descriptions)、resize()、serializeState()、dispose()；resize 将每栏 content 像素高度直接写入内容视口，避免 details 百分比高度问题。描述包含稳定 id、标题、默认展开状态、可选 defaultShare / initialFit、内容回调及标题选择回调。
+- **布局**：calculateLayout() 保持原顺序，收起标题 36px、分界线 10px、展开内容至少 24px；每对相邻展开栏之间只生成一个分界线，插在前一个展开栏之后。最小尺寸超出视口时外层滚动。
+- **交互与状态**：只调整相邻展开栏，支持指针捕获、取消、键盘和双击复位；权重与展开状态独立保存，migrateState() 兼容旧两栏状态。defaultShare 控制默认内容份额，不硬编码 VUL 分类；initialFit 在没有历史高度权重时测量自然内容高度并按 maxShare 设置初始栏高，INTERFACE 配置为 35%，手动调整不受此上限限制。
+- **关联**：由扩展 HTML 在 visualizer.js 之前加载；布局单测见 tests/sidebar.test.cjs，组合展示见 tests/webview.test.cjs。
+
 ## `media/visualizer.css`
+
+- **分栏布局**：左侧采用有界高度的 Grid，动态行高与分界线顺序由 sidebar.js 计算；展开内容独立滚动，高度不足时左侧整体滚动。一级内容有左缩进和 3px 主题对比色竖线，显式高度下独立纵向滚动，采用 stable gutter / overscroll contain 和主题滑块，收起内容 display:none；右侧详情独立滚动。
 
 - **职责**：可视化页面布局、组件选中态、参数表、代码块、错误和过期提示样式。
 - **约定**：使用 VS Code 主题变量；主区域采用两列 Grid，窄屏切换为单列；保留按钮键盘焦点样式。
@@ -119,9 +132,9 @@
 ## `package.json`
 
 - **职责**：VS Code 扩展清单及 npm 工程入口；固定 `name=vul-tools`、`displayName=VUL Tools`、`publisher=mengcz-sdu`。
-- **扩展贡献**：文件关联、grammar、自定义编辑器、命令、标题栏菜单及 `vulTools.diagnostics.enabled` 配置。自定义编辑器为可选项，默认仍打开源码。
+- **扩展贡献**：文件关联、grammar、自定义编辑器、命令、标题栏菜单及 `vulTools.diagnostics.enabled` 配置。自定义编辑器 priority 为 default，覆盖 `.uh/.vul/.utb` 的默认打开方式；Source View 显式打开文本编辑器。
 - **运行约定**：入口 `out/extension.js`，`extensionKind=workspace`；声明最低 VS Code 版本及工作区能力。TextMate、Oniguruma 和 JSONC 运行库由 esbuild 内联；WASM 单独打包。
-- **脚本入口**：`build`、`typecheck`、`test`、`test:host`、`test:examples`、`package`、`example`；VSIX 打包使用 `--no-dependencies`。
+- **脚本入口**：`build`、`typecheck`、`test`、`test:host`、`test:webview`、`test:examples`、`package`、`example`；VSIX 打包使用 `--no-dependencies`。
 - **修改入口**：元数据、功能注册、配置和构建命令。命令前缀保持 `vul-tools.*`，配置前缀保持 `vulTools.*`。
 
 ## `package-lock.json`
@@ -137,7 +150,7 @@
 ## `scripts/build-example.cjs`
 
 - **职责**：开发用真实仿真构建脚本，导出 `buildExample(name, sdkArg)`，也可从命令行运行。
-- **流程**：检查案例与 SDK → 调用 `vulsimgen` → 用 C++20 编译生成代码 → 执行仿真；所有子进程使用参数数组和 `shell: false`，非零退出码作为失败。
+- **流程**：从 `install/example/` 读取案例，检查案例与 SDK → 调用 `vulsimgen` → 用 C++20 编译生成代码 → 执行仿真；先把 `.uh/.vul/.utb` 复制到临时工程，避免 SDK 旧文件干扰，最终清理临时目录；所有子进程使用参数数组和 `shell: false`，非零退出码作为失败；返回并显示仿真标准输出。
 - **配置**：SDK 按显式参数、`VUL_SDK`、仓库本地安装目录依次选择；编译器使用 `CXX` 或 `g++`；输出固定到案例构建目录。
 - **修改入口**：工具链调用、案例入口映射、构建与运行参数。扩展运行时不调用此脚本。
 
@@ -148,7 +161,7 @@
 
 ## `scripts/test-examples.cjs`
 
-- **职责**：依次调用 `buildExample()`，执行三个真实案例的生成、编译和断言运行，失败时设置非零退出状态。
+- **职责**：依次调用 `buildExample()`，执行三个真实案例的生成、编译，并逐行断言仿真输出的值、周期和次数，失败时设置非零退出状态。
 - **入口**：`npm run test:examples`；需要外部 SDK 和 C++20 编译器，与纯解析测试分开执行。
 
 ## `scripts/test-host.cjs`
@@ -157,11 +170,22 @@
 - **配置**：默认 VS Code 1.95.3；支持 `VSCODE_TEST_VERSION`、`VSCODE_TEST_EXECUTABLE` 和 `VSCODE_HEADLESS`。清除继承的 `ELECTRON_RUN_AS_NODE`，避免误以 Node 模式启动编辑器。
 - **关联**：测试入口为 `tests/host/index.cjs`；Linux 无桌面环境可使用 Xvfb。首次执行可能需要联网下载宿主。
 
+## `scripts/test-webview.cjs`
+
+- **职责**：实际 Chromium Webview 原生输入验收驱动；npm run test:webview 调用，需要 Node.js 22+ 的内置 WebSocket。
+- **隔离**：通过 @vscode/test-electron 启动独立临时工程和用户目录，本地临时 DevTools 端口发现内容 frame；不改产品消息或加入测试 hook。跨进程测试状态使用原子写入的临时 JSON，退出清理。
+- **覆盖**：独立内容溢出、原生滚轮、滑块拖动、标题固定、边界隔离、短列表、折叠与视口尺寸变化，以及 Header 单栏和 Testbench 多栏。VUL_WEBVIEW_SCREENSHOT 可输出检查截图。
+
+## `tests/webview-host/index.cjs`
+
+- **职责**：真实 Webview 专用宿主 fixture，创建长接口/全局/版本列表、Header 和 Testbench，调用正式命令打开可视化，按测试驱动请求切换文件并打开 Problems 面板改变视口尺寸。
+- **边界**：仅测试宿主使用，依靠临时文件与驱动同步；扩展运行时无新增协议、配置或字段。
+
 ## `tests/parser.test.cjs`
 
 - **职责**：使用 Node test runner 检查纯解析器与 `DocumentSession`，从 `out/` 导入编译结果。
 - **覆盖**：参数与默认值、模板和表达式边界、业务参数、参数覆盖、接口与版本、流水线、作用域错误、错误恢复、条件标签、注释和字符串、UTF-16 / CRLF，以及快照过期行为。
-- **依赖边界**：还读取本地迁移案例作真实源码回归；这些案例当前被 Git 忽略，运行相关测试前需确保其存在。此套测试不调用 SDK 二进制。
+- **依赖边界**：还读取`install/example/` 中的 SDK 案例作真实源码回归；SDK 目录被 Git 忽略，运行相关测试前需安装 SDK 并确保案例存在。此套测试不调用 SDK 二进制。
 - **修改入口**：修改词法器、规则、解析算法或快照模型后，为相应行为添加回归用例。
 
 ## `tests/project.test.cjs`
@@ -172,6 +196,10 @@
 
 - **职责**：使用 URI 感知的模拟 VS Code 文件系统测试真实 ProjectService，涵盖 Remote URI、共享缓存、未保存 Header、异步加载与根切换、文件变更和监听释放。
 - **隔离**：在独立 VM 中加载宿主服务，文件和设置留在内存，不替换其他测试使用的模块缓存。
+
+## `tests/sidebar.test.cjs`
+
+- **职责**：遍历最多七栏的全部展开组合，验证顺序、分界线、默认份额、最小高度和溢出；另检查显式内容高度、折叠归零、INTERFACE 自然尺寸测量恢复与历史高度优先；通过 jsdom 验证指针捕获、键盘调整、双击复位、折叠恢复、状态迁移和资源释放。
 
 ## `tests/webview.test.cjs`
 
@@ -187,7 +215,7 @@
 ## `tests/host/index.cjs`
 
 - **职责**：导出 `run()`，由实际 VS Code 扩展测试宿主加载；`until()` 等待异步状态。
-- **覆盖**：扩展激活、真实 `.vul` / `.utb` 关联、Header 保持 C++ 关联、打开可视化、返回源码、未保存刷新不写回、诊断更新、保存和快照版本，以及全局 Header、未保存 Header、PROJECT 重绑定和文件增删自动刷新。
+- **覆盖**：扩展激活、真实 `.vul` / `.utb` 关联、Header 保持现有编辑器语言关联、打开可视化、返回源码、未保存刷新不写回、诊断更新、保存和快照版本，以及全局 Header、未保存 Header、PROJECT 重绑定和文件增删自动刷新。
 - **隔离**：在临时目录构造测试文件，结束时关闭并清理测试文档；通过扩展导出的 `getSnapshot()` 检查内部状态。
 - **修改入口**：命令、编辑器生命周期、文档事件和文件关联的集成回归。
 

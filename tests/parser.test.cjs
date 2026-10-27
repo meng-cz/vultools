@@ -128,11 +128,12 @@ test('document snapshots stay stale until refreshed and bind to current version'
   assert.equal(state.stale, false); assert.equal(state.version, 2); assert.equal(state.result.components[0].name, 'new');
 });
 for (const name of ['querydemo','prodcon','array1d']) test(`real migrated ${name} declarations parse without errors`, () => {
-  const dir = path.join(__dirname,'../examples',name);
-  for (const file of fs.readdirSync(dir).filter(f => /\.(vul|utb)$/.test(f))) {
-    const r = parse(fs.readFileSync(path.join(dir,file),'utf8'), file.endsWith('.utb') ? 'testbench' : 'module');
+  const dir = path.join(__dirname,'../install/example',name);
+  for (const file of fs.readdirSync(dir).filter(f => /\.(uh|vul|utb)$/.test(f))) {
+    const r = parse(fs.readFileSync(path.join(dir,file),'utf8'), file.endsWith('.utb') ? 'testbench' : file.endsWith('.uh') ? 'header' : 'module');
     assert.deepEqual(r.issues, [], `${name}/${file}: ${JSON.stringify(r.issues)}`);
-    assert.ok(flatten(r.components).length);
+    // A project Header may legitimately contain only includes or comments.
+    if (!file.endsWith('.uh')) assert.ok(flatten(r.components).length);
   }
 });
 test('incomplete C++ parentheses do not cause a declaration syntax error', () => {

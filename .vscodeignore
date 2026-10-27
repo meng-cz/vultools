@@ -10,7 +10,7 @@ package-lock.json
 install/**
 guide*.md
 build/**
-examples/**/build/**
+examples/**
 *.vsix
 out/**/*.map
 out/**
